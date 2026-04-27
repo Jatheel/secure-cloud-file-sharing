@@ -1,24 +1,177 @@
-# Dependencies
+# ========================================
+# Dependencies & Node Modules
+# ========================================
 /node_modules
 /secure-cloud-frontend/node_modules
 /secure-cloud-backend/node_modules
+node_modules/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# Environment Variables (IMPORTANT: Contains secrets!)
+# ========================================
+# Environment Variables (CRITICAL SECURITY)
+# ========================================
+# NEVER commit files containing secrets, API keys, or credentials
 .env
+.env.local
+.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
 /secure-cloud-frontend/.env
+/secure-cloud-frontend/.env.local
 /secure-cloud-backend/.env
+/secure-cloud-backend/.env.local
 
-# Production build folder
+# ========================================
+# Build & Compilation Outputs
+# ========================================
 /dist
+/build
+/out
 /secure-cloud-frontend/dist
+/secure-cloud-backend/dist
+*.min.js
+*.min.css
+/coverage
+.next
+.vuepress/dist
+dist-ssr
 
-# Logs
-logs
+# ========================================
+# Logs & Debugging
+# ========================================
+logs/
 *.log
 npm-debug.log*
+npm-error.log*
 yarn-debug.log*
 yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+debug.log
+pids
+*.pid
+*.seed
+*.pid.lock
 
-# System files
+# ========================================
+# Operating System Files
+# ========================================
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.AppleDouble
+.LSOverride
+
+# ========================================
+# IDE & Editor Configuration
+# ========================================
+# Visual Studio Code
+.vscode/
+*.code-workspace
+.vscode-test
+.vscode-update
+
+# WebStorm / IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+.gradle/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Atom
+.atom/
+.atomrc
+
+# VS
+.vs/
+*.suo
+*.sln
+
+# Other editors
+*.swp
+*.swo
+*~
+.netrwhist
+.project
+.classpath
+.c9/
+
+# ========================================
+# File Upload & Temporary Files
+# ========================================
+# Local uploaded files (regenerate on deployment)
+/secure-cloud-backend/uploads/
+/uploads/
+/tmp/
+/temp/
+
+# Temporary test files
+test_upload.txt
+temp_*
+*.tmp
+
+# ========================================
+# Package Manager Files (Optional)
+# ========================================
+# Uncomment if you want to commit lock files
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# NPM cache
+.npm
+.nprc
+.npmrc
+
+# Yarn
+.yarn/*
+!.yarn/releases
+!.yarn/plugins
+!.yarn/sdks
+!.yarn/versions
+
+# PNPM
+pnpm-lock.yaml
+
+# ========================================
+# Testing & Coverage
+# ========================================
+/coverage
+*.lcov
+.nyc_output/
+*.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# ========================================
+# Database Files (if local SQLite/etc)
+# ========================================
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+# ========================================
+# Misc Project Files
+# ========================================
+.cache/
+.vite/
+.turbo/
+dist/
+pnpm-workspace.yaml
+.env.example  # Optionally track example, not actual
