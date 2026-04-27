@@ -1,73 +1,508 @@
 # **Secure Cloud File Sharing with Blockchain-Based Audit Logs**
 
-This project is a full-stack, proof-of-concept secure file-sharing platform designed to address the trust and security limitations inherent in centralized cloud storage models. It implements a novel hybrid architecture that combines the performance and efficiency of centralized file storage with the trust, transparency, and immutability of a blockchain-ready audit log.
+A modern, full-stack secure file-sharing platform that combines centralized performance with blockchain-level transparency and immutability. This proof-of-concept demonstrates how to build a trusted file-sharing system with comprehensive audit logging, JWT authentication, and role-based access control.
 
-## **✨ Core Features**
+**Live Demo**: http://localhost:5173  
+**GitHub**: https://github.com/Jatheel/secure-cloud-file-sharing
 
-* **Secure User Authentication**: JWT-based registration and login system for secure, stateless user sessions.  
-* **Role-Based Access Control (RBAC)**: Differentiated permissions for user and admin roles to control access to system features.  
-* **Recipient-Only Authenticated Downloads**: An innovative security mechanism ensuring that only the intended recipient, after authenticating, can download a shared file. This renders intercepted or leaked links useless to unauthorized parties.  
-* **Time-Limited & Revocable Shares**: Users can set expiration dates on shared links and instantly revoke access at any time.  
-* **Blockchain-Ready Audit Log**: A comprehensive and persistent log of all critical system events (uploads, shares, successful downloads, denied access attempts, revocations) is recorded in a tamper-evident structure, designed for future migration to an immutable blockchain ledger.  
-* **Client-Side File Integrity Verifier**: A UI tool allowing users to verify the integrity of a downloaded file against the original using SHA-256 hashing.
+---
 
-## **🛠️ Technology Stack**
+## **✨ Features Status**
 
-The application is built on a modern MERN-based stack, chosen for performance, security, and rapid development capabilities.
+### **✅ Working Features**
+
+- ✅ **User Authentication**: JWT-based login/registration with email validation
+- ✅ **Self-Service Registration**: Users can sign up; admin role requires approval workflow
+- ✅ **Admin Approval System**: Admins approve pending user registrations
+- ✅ **Role-Based Access Control (RBAC)**: User and admin roles with differentiated permissions
+- ✅ **File Upload**: Multi-file upload with type validation (PDF, DOCX, JPG, PNG)
+- ✅ **File Sharing**: Share files with recipients via unique tokens with expiry control
+- ✅ **Recipient-Only Downloads**: Only authenticated recipients can download shared files
+- ✅ **Token-Based Access**: Unique tokens for each share, verification before download
+- ✅ **Time-Limited Shares**: Set expiration dates on file shares (optional)
+- ✅ **Revoke Access**: Instantly revoke shared file access
+- ✅ **Sent Shares View**: View all files you've shared with others
+- ✅ **Received Shares View**: View all files shared with you
+- ✅ **Blockchain Audit Log**: Immutable log of all file operations (SHA-256 linked blocks)
+- ✅ **Client-Side Integrity Verifier**: SHA-256 hash verification for downloaded files
+- ✅ **Comprehensive Audit Logging**: All actions logged (upload, share, download, revoke)
+- ✅ **Token Expiry Detection**: Proactive frontend token validation to prevent 401 errors
+- ✅ **Unified Share Management**: Single dashboard for sent and received shares
+
+### **⏳ Features In Development / Todo**
+
+- 🔄 **Email Notifications**: Share notifications via Nodemailer (infrastructure ready, credentials pending)
+- 🔄 **Admin Dashboard**: Approve/reject pending users, view system statistics
+- 🔄 **Activity Timeline**: Visual timeline of all user activities
+- 🔄 **File Encryption**: End-to-end encryption for files at rest
+- 🔄 **Blockchain Migration**: Move audit logs to a real blockchain (Ethereum/Hyperledger)
+- 🔄 **Two-Factor Authentication (2FA)**: Enhanced security for user accounts
+- 🔄 **File Versioning**: Track and restore previous versions of shared files
+- 🔄 **Bulk Operations**: Download multiple files, batch share with multiple recipients
+- 🔄 **Search & Filter**: Search files by name, date, recipient
+- 🔄 **Share Analytics**: View download counts, access patterns for shared files
+- 🔄 **API Documentation**: Swagger/OpenAPI docs for all endpoints
+
+---
+
+## **🛠️ Tech Stack**
 
 | Layer | Technology | Purpose |
-| :---- | :---- | :---- |
-| **Frontend** | **React (with Vite)**, **Tailwind CSS** | A responsive, component-based Single-Page Application (SPA) for the UI. |
-| **Backend** | **Node.js**, **Express.js** | A high-performance, non-blocking server for API requests and business logic. |
-| **Database** | **MongoDB (with Mongoose)** | A flexible NoSQL database for storing user data, file metadata, and audit logs. |
-| **Auth** | **JSON Web Tokens (JWT)**, **bcrypt.js** | Stateless authentication and secure password hashing. |
-| **File I/O** | **Multer** | Middleware for handling multipart/form-data file uploads. |
-| **Utilities** | **Axios**, **Crypto-JS**, **Nodemailer** | API communication, client-side cryptography, and email notifications. |
+|-------|-----------|---------|
+| **Frontend** | React 19.1.0, Vite, Tailwind CSS, Axios, CryptoJS | Modern SPA with responsive UI and client-side encryption |
+| **Backend** | Node.js v25+, Express.js 4.18+ | High-performance API server with middleware |
+| **Database** | MongoDB Atlas, Mongoose | Flexible NoSQL database for data persistence |
+| **Authentication** | JWT (jsonwebtoken), bcryptjs | Stateless auth with secure password hashing |
+| **File Handling** | Multer, fs | Multipart form handling and disk storage |
+| **Blockchain** | Custom implementation (SHA-256 linked blocks) | Tamper-evident audit log structure |
+| **Email** | Nodemailer | Email notifications (Ethereal test service) |
+| **Utilities** | DatePicker, react-datepicker, CryptoJS | UI components and cryptography |
 
-## **🚀 Getting Started**
+---
 
-Follow these instructions to get a local copy of the project up and running for development and testing.
+## **📋 Prerequisites**
 
-### **Prerequisites**
+- **Node.js** v18+ (tested on v25.2.1)
+- **npm** or **yarn**
+- **MongoDB Atlas** account (free tier works) with connection string
+- **Git** for version control
+- **Postman/cURL** for API testing (optional)
 
-* Node.js (v18.x or later)  
-* npm (or yarn)  
-* A running MongoDB instance (local or a cloud service like MongoDB Atlas)
+---
 
-### **Installation & Setup**
+## **🚀 Installation & Setup**
 
-1. **Clone the repository:**  
-   git clone \[https://github.com/PaVAnKuMaR-18o3/SecureCloudProject.git\](https://github.com/PaVAnKuMaR-18o3/SecureCloudProject.git)  
-   cd SecureCloudProject
+### **1. Clone the Repository**
 
-2. **Install Backend Dependencies:**  
-   cd backend  
-   npm install
+```bash
+git clone https://github.com/Jatheel/secure-cloud-file-sharing.git
+cd secure-cloud-file-sharing
+```
 
-3. **Install Frontend Dependencies:**  
-   cd ../frontend  
-   npm install
+### **2. Backend Setup**
 
-4. Configure Backend Environment Variables:  
-   In the /backend directory, create a file named .env and add the following configuration. Replace the placeholder values with your actual data.  
-   \# MongoDB Connection String  
-   MONGO\_URI=your\_mongodb\_connection\_string
+Navigate to the backend directory and install dependencies:
 
-   \# JWT Secret Key (use a long, random string)  
-   JWT\_SECRET=your\_super\_secret\_jwt\_key\_for\_signing\_tokens
+```bash
+cd secure-cloud-backend
+npm install
+```
 
-   \# Port for the server to run on  
-   PORT=5001
+#### **Configure Environment Variables**
 
-### **Running the Application**
+Create a `.env` file in `secure-cloud-backend/` and add:
 
-1. Start the Backend Server:  
-   From the /backend directory, run:  
-   npm start
+```env
+# MongoDB Connection String (get from MongoDB Atlas)
+MONGO_URI=mongodb+srv://username:password@cluster0.xxxxx.mongodb.net/securecloud?retryWrites=true&w=majority&appName=Cluster0
 
-   The API server will start on http://localhost:5001.  
-2. Start the Frontend Development Server:  
-   From the /frontend directory, run:  
-   npm run dev
+# JWT Secret (use a strong, random string)
+JWT_SECRET=your_super_secret_jwt_key_change_me_in_production
 
-   The React application will start. You can access it in your browser, usually at http://localhost:5173.
+# Server Port
+PORT=5001
+
+# Frontend URL (for CORS)
+FRONTEND_URL=http://localhost:5173
+
+# Email Credentials (Ethereal test service or your email provider)
+ETHEREAL_USER=your_ethereal_email@ethereal.email
+ETHEREAL_PASS=your_ethereal_password
+```
+
+**Get your MongoDB connection string:**
+1. Go to [MongoDB Atlas](https://www.mongodb.com/cloud/atlas)
+2. Create a cluster (free tier available)
+3. Click "Connect" → "Connect to your application"
+4. Copy the connection string and replace username/password
+
+### **3. Frontend Setup**
+
+Open a new terminal and navigate to the frontend directory:
+
+```bash
+cd secure-cloud-frontend
+npm install
+```
+
+**Frontend runs on port 5173 by default** (configured in `vite.config.js`)
+
+---
+
+## **▶️ Running the Application**
+
+### **Start Backend Server** (Terminal 1)
+
+```bash
+cd secure-cloud-backend
+npm start
+```
+
+Expected output:
+```
+✅ Server running on port 5001
+✅ MongoDB connected
+📡 Routes mounted
+```
+
+### **Start Frontend Dev Server** (Terminal 2)
+
+```bash
+cd secure-cloud-frontend
+npm run dev
+```
+
+Expected output:
+```
+VITE v7.1.1  ready in 314 ms
+➜  Local:   http://localhost:5173/
+```
+
+### **Access the Application**
+
+Open your browser and go to: **http://localhost:5173**
+
+---
+
+## **📁 Project Structure**
+
+```
+secure-cloud-file-sharing/
+├── secure-cloud-backend/
+│   ├── config/
+│   │   └── db.js                 # MongoDB connection
+│   ├── controllers/
+│   │   ├── authController.js     # Auth logic (login, register, approval)
+│   │   └── roleController.js     # Role management
+│   ├── middleware/
+│   │   ├── authMiddleware.js     # JWT verification
+│   │   ├── roleMiddleware.js     # Permission checking
+│   │   └── uploadMiddleware.js   # Multer config
+│   ├── models/
+│   │   ├── User.js               # User schema with approval workflow
+│   │   ├── File.js               # File metadata
+│   │   ├── Share.js              # Share records with tokens
+│   │   ├── AuditLog.js           # Audit log entries
+│   │   └── Role.js               # Role definitions
+│   ├── routes/
+│   │   ├── auth.js               # Auth endpoints
+│   │   ├── upload.js             # File upload/download
+│   │   ├── share.js              # File sharing
+│   │   ├── roles.js              # Role management
+│   │   └── auditLog.js           # Audit log queries
+│   ├── utils/
+│   │   ├── blockchain.js         # SHA-256 linked blocks
+│   │   └── email.js              # Email notifications
+│   ├── uploads/                  # Local file storage
+│   ├── server.js                 # Express app setup
+│   ├── .env                      # Environment config
+│   └── package.json
+│
+├── secure-cloud-frontend/
+│   ├── src/
+│   │   ├── App.jsx               # Main app component
+│   │   ├── LoginPage.jsx         # Login/signup form
+│   │   ├── DownloadComponent.jsx # Download page
+│   │   ├── App.css               # Tailwind styles
+│   │   ├── main.jsx              # React entry point
+│   │   └── assets/               # Static files
+│   ├── vite.config.js            # Vite configuration
+│   ├── package.json
+│   ├── tailwind.config.js        # Tailwind CSS config
+│   └── index.html
+│
+└── README.md
+```
+
+---
+
+## **🔌 API Endpoints**
+
+### **Authentication**
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|----------------|
+| POST | `/api/auth/register` | Register new user | ❌ |
+| POST | `/api/auth/login` | Login user, get JWT token | ❌ |
+| GET | `/api/auth/pending` | Get pending users (admin only) | ✅ Admin |
+| PATCH | `/api/auth/approve/:userId` | Approve pending user | ✅ Admin |
+| PATCH | `/api/auth/reject/:userId` | Reject pending user | ✅ Admin |
+
+### **File Upload & Download**
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|----------------|
+| POST | `/api/upload` | Upload file | ✅ User |
+| GET | `/api/upload/:fileId` | Download file by ID | ✅ User |
+| DELETE | `/api/upload/:fileId` | Delete file | ✅ User/Admin |
+
+### **File Sharing**
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|----------------|
+| POST | `/api/share` | Share file with recipient | ✅ User |
+| GET | `/api/share/my-shares` | Get files you shared | ✅ User |
+| GET | `/api/share/received-shares` | Get files shared with you | ✅ User |
+| GET | `/api/share/download/:token` | Download via share token | ✅ User |
+| DELETE | `/api/share/revoke/:shareId` | Revoke file share | ✅ User |
+
+### **Audit Logs**
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|----------------|
+| GET | `/api/auditLog` | Get all audit logs (admin) | ✅ Admin |
+| GET | `/api/auditLog/my-logs` | Get your own audit logs | ✅ User |
+
+---
+
+## **👥 User Workflows**
+
+### **Workflow 1: Register as Regular User**
+
+1. Visit http://localhost:5173
+2. Click **Sign Up** → Select **User** role
+3. Enter email and password → Submit
+4. **Instant approval** - You can log in immediately
+5. Create account with auto "user" role
+
+### **Workflow 2: Admin Registration**
+
+1. Visit http://localhost:5173
+2. Click **Sign Up** → Select **Admin** role
+3. Enter email and password → Submit
+4. **Pending approval** - Admin must approve you
+5. Another admin goes to **Roles** tab and approves your account
+6. Once approved, you can log in with admin permissions
+
+### **Workflow 3: Share a File**
+
+1. Log in as user
+2. Go to **Upload** tab → Upload a file (PDF, DOCX, JPG, PNG)
+3. Go to **Demo** tab → Enter recipient email
+4. Set expiry time (optional) → Click **Share**
+5. Share token is generated and recipient is notified (if email configured)
+6. Recipient can download the file only after authenticating
+
+### **Workflow 4: Download Shared File**
+
+1. Receive share link or email notification
+2. Log in to your account (if not already logged in)
+3. Go to **Manage Shares** tab
+4. View "Files Shared With You" section
+5. Click **Download** button to get the file
+
+### **Workflow 5: Verify File Integrity**
+
+1. Download a file from the platform
+2. Go to **Technology** tab
+3. Upload **original file** and **downloaded file**
+4. Click **Verify Integrity**
+5. System compares SHA-256 hashes and shows match/mismatch status
+
+---
+
+## **🧪 Testing the API**
+
+### **Test with cURL**
+
+**1. Register User:**
+```bash
+curl -X POST http://localhost:5001/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"password123","role":"user"}'
+```
+
+**2. Login:**
+```bash
+curl -X POST http://localhost:5001/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"password123"}'
+```
+
+**3. Upload File:**
+```bash
+curl -X POST http://localhost:5001/api/upload \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -F "file=@/path/to/file.pdf"
+```
+
+**4. Share File:**
+```bash
+curl -X POST http://localhost:5001/api/share \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"fileId":"FILE_ID","sharedWith":"recipient@example.com","expiresAt":"2026-12-31"}'
+```
+
+### **Test with Postman**
+
+1. Import the endpoints from the API Endpoints table above
+2. Set base URL to `http://localhost:5001`
+3. Add `Authorization: Bearer YOUR_JWT_TOKEN` header for protected routes
+4. Test each endpoint with sample data
+
+---
+
+## **⚠️ Troubleshooting**
+
+### **Backend won't start on port 5001**
+
+**Problem:** `EADDRINUSE: address already in use :::5001`
+
+**Solution:**
+```bash
+# Kill process on port 5001 (Windows PowerShell)
+Get-NetTCPConnection -LocalPort 5001 | Stop-Process -Force
+
+# Or restart backend
+npm start
+```
+
+### **MongoDB connection fails**
+
+**Problem:** `querySrv ENOTFOUND _mongodb._tcp.cluster0...`
+
+**Solution:**
+- Verify `MONGO_URI` in `.env` is correct
+- Check MongoDB Atlas firewall: Add `0.0.0.0/0` to IP whitelist
+- Ensure network access is enabled in Atlas cluster settings
+- Backend auto-forces public DNS (Google 8.8.8.8) to bypass local DNS blocking
+
+### **"Could not fetch shared files" error**
+
+**Problem:** Received shares fetch fails
+
+**Solution:**
+1. Open browser DevTools (F12) → Console tab
+2. Check if token is valid: `console.log(localStorage.getItem('token'))`
+3. Verify backend is running: Check if `http://localhost:5001/api/share/my-shares` responds
+4. Restart frontend dev server:
+   ```bash
+   npm run dev  # in secure-cloud-frontend
+   ```
+
+### **JWT Token expired - forced logout**
+
+**Problem:** After 8 hours, token expires and you're logged out
+
+**Solution:**
+- Frontend automatically detects token expiry before making requests
+- You'll be redirected to login page
+- Log in again to get a new token (valid for 8 more hours)
+- Token expiry is intentional for security
+
+### **Files not uploading - "File type not supported"**
+
+**Problem:** Only PDF, DOCX, JPG, PNG allowed
+
+**Allowed file types:**
+- ✅ `.pdf`
+- ✅ `.docx`
+- ✅ `.jpg`
+- ✅ `.jpeg`
+- ✅ `.png`
+
+**Solution:** Upload a file with one of the allowed extensions
+
+### **Email notifications not sending**
+
+**Problem:** Share notifications don't arrive
+
+**Solution:** Email is optional - shares work without notifications. To enable:
+1. Get Ethereal test email from https://ethereal.email
+2. Add credentials to `.env`:
+   ```env
+   ETHEREAL_USER=your_test_email@ethereal.email
+   ETHEREAL_PASS=your_test_password
+   ```
+3. Or use a real email provider (Gmail, Outlook, etc.) with app password
+
+---
+
+## **🔐 Security Considerations**
+
+- ✅ **Password Hashing**: All passwords hashed with bcryptjs (10 salt rounds)
+- ✅ **JWT Tokens**: Signed with secret key, 8-hour expiry
+- ✅ **CORS Enabled**: Frontend and backend communicate securely
+- ✅ **File Validation**: Only allowed types accepted
+- ✅ **Authentication Required**: All sensitive operations require JWT
+- ✅ **Role-Based Access**: Admins and users have different permissions
+- ⚠️ **TODO**: Add HTTPS/TLS for production
+- ⚠️ **TODO**: Implement rate limiting for API endpoints
+- ⚠️ **TODO**: Add end-to-end encryption for files
+
+---
+
+## **📊 Audit Logging & Blockchain**
+
+Every critical operation is logged with:
+- **Timestamp**: ISO 8601 format
+- **User Email**: Who performed the action
+- **Action**: upload, share, download, revoke, etc.
+- **File ID**: Which file was affected
+- **Result**: Success or failure
+- **Blockchain Hash**: SHA-256 linked blocks for immutability
+
+Example audit log entry:
+```json
+{
+  "_id": "507f1f77bcf86cd799439011",
+  "fileId": "507f1f77bcf86cd799439012",
+  "userId": "507f1f77bcf86cd799439013",
+  "action": "share",
+  "details": "File shared with user@example.com",
+  "timestamp": "2026-04-28T12:30:00Z",
+  "ipAddress": "192.168.1.100",
+  "blockHash": "abc123def456..."
+}
+```
+
+---
+
+## **🤝 Contributing**
+
+Contributions are welcome! To contribute:
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/your-feature`
+3. Commit changes: `git commit -m "feat: add your feature"`
+4. Push to branch: `git push origin feature/your-feature`
+5. Open a Pull Request
+
+### **Development Guidelines**
+
+- Use ES6+ syntax
+- Follow existing code style
+- Add comments for complex logic
+- Test new features before submitting PR
+- Update README if adding new features
+
+---
+
+## **📝 License**
+
+This project is open source and available under the MIT License.
+
+---
+
+## **👨‍💼 Author**
+
+**Jatheel MHD**  
+GitHub: [@Jatheel](https://github.com/Jatheel)  
+Repository: [secure-cloud-file-sharing](https://github.com/Jatheel/secure-cloud-file-sharing)
+
+---
+
+## **📞 Support**
+
+For issues, questions, or suggestions:
+
+1. **GitHub Issues**: Open an issue in the repository
+2. **Email**: Check GitHub profile for contact info
+3. **Documentation**: See troubleshooting section above
+
+---
+
+**Last Updated:** April 28, 2026  
+**Version:** 1.0.0 Beta
+
