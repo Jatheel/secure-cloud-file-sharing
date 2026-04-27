@@ -12,14 +12,24 @@ const { sendShareEmail } = require('../utils/email');
 // ⬆️ Share File (generate shareable token)
 router.post('/', authenticateUser, async (req, res) => {
   const { fileId, sharedWith, expiresAt } = req.body;
+  const normalizedRecipient = sharedWith?.trim()?.toLowerCase();
   const sharedBy = req.user.email;
   const sharerUserId = req.user.userId;
   let file;
 
   try {
+    if (!fileId || !normalizedRecipient) {
+      return res.status(400).json({ message: 'fileId and sharedWith are required' });
+    }
+
+    if (expiresAt && Number.isNaN(new Date(expiresAt).getTime())) {
+      return res.status(400).json({ message: 'Invalid expiresAt value' });
+    }
+
     file = await File.findById(fileId);
     if (!file) {
-      await AuditLog.create({
+      try {
+        await AuditLog.create({
           user: sharerUserId,
           userEmail: sharedBy,
           action: 'SHARE_FILE_FAILED',
@@ -28,87 +38,107 @@ router.post('/', authenticateUser, async (req, res) => {
           meta: {
             reason: 'File not found',
             attemptedFileId: fileId,
-            sharedWith: sharedWith,
+            sharedWith: normalizedRecipient,
           },
-      });
+        });
+      } catch (auditErr) {
+        console.error('Audit log failed:', auditErr.message);
+      }
       return res.status(404).json({ message: 'File not found' });
     }
 
     const token = uuidv4();
     const share = new Share({
       fileId,
-      sharedWith,
+      sharedWith: normalizedRecipient,
       sharedBy,
       token,
       expiresAt
     });
     await share.save();
 
-    await AuditLog.create({
-      user: sharerUserId,
-      userEmail: sharedBy,
-      action: 'SHARE_FILE',
-      ip: req.ip,
-      meta: {
-        fileId: file._id,
-        originalName: file.originalName,
-        sharedWith: sharedWith,
-        shareToken: token,
-        expiresAt: expiresAt,
-      },
-    });
+    try {
+      await AuditLog.create({
+        user: sharerUserId,
+        userEmail: sharedBy,
+        action: 'SHARE_FILE',
+        ip: req.ip,
+        meta: {
+          fileId: file._id,
+          originalName: file.originalName,
+          sharedWith: normalizedRecipient,
+          shareToken: token,
+          expiresAt: expiresAt,
+        },
+      });
+    } catch (auditErr) {
+      console.error('Audit log failed:', auditErr.message);
+    }
 
     const frontendUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/download/${token}`;
-    
-    await sendShareEmail(sharedWith, sharedBy, file, frontendUrl);
+
+    let emailSent = true;
+    try {
+      await sendShareEmail(normalizedRecipient, sharedBy, file, frontendUrl);
+    } catch (emailErr) {
+      emailSent = false;
+      console.error('Share email failed:', emailErr.message);
+    }
 
     res.status(200).json({
-      message: '✅ File shared successfully and notification sent.',
-      token: token 
+      message: emailSent
+        ? '✅ File shared successfully and notification sent.'
+        : '✅ File shared successfully. Email notification could not be sent.',
+      token: token,
+      emailSent,
     });
   } catch (err) {
-    console.error(err);
-    await AuditLog.create({
-      user: sharerUserId,
-      userEmail: sharedBy,
-      action: 'SHARE_FILE_FAILED',
-      success: false,
-      ip: req.ip,
-      meta: {
-        fileId: fileId,
-        originalName: file?.originalName,
-        sharedWith: sharedWith,
-        error: err.message,
-      },
-    });
-    res.status(500).json({ message: '❌ Failed to share file' });
+    console.error('Share route error:', err.message);
+    try {
+      await AuditLog.create({
+        user: sharerUserId,
+        userEmail: sharedBy,
+        action: 'SHARE_FILE_FAILED',
+        success: false,
+        ip: req.ip,
+        meta: {
+          fileId: fileId,
+          originalName: file?.originalName,
+          sharedWith: normalizedRecipient,
+          error: err.message,
+        },
+      });
+    } catch (auditErr) {
+      console.error('Audit log failed:', auditErr.message);
+    }
+    res.status(500).json({ message: '❌ Failed to share file', error: err.message });
   }
 });
 
 // ⬇️ Download shared file using token (SECURED)
 router.get('/download/:token', authenticateUser, async (req, res) => {
-  let share; 
+  let share;
   try {
     share = await Share.findOne({ token: req.params.token }).populate('fileId');
 
     if (!share) {
-        return res.status(404).json({ message: 'Invalid token' });
+      return res.status(404).json({ message: 'Invalid token' });
     }
-    
+
     if (share.sharedWith !== req.user.email) {
-        await AuditLog.create({
-            user: req.user.userId,
-            userEmail: req.user.email,
-            action: 'DOWNLOAD_ACCESS_DENIED',
-            success: false,
-            ip: req.ip,
-            meta: {
-                reason: 'User is not the intended recipient',
-                shareToken: req.params.token,
-                intendedRecipient: share.sharedWith,
-            },
-        });
-        return res.status(403).json({ message: 'Access Denied: You are not the intended recipient of this file.' });
+      await AuditLog.create({
+        user: req.user.userId,
+        userEmail: req.user.email,
+        action: 'DOWNLOAD_ACCESS_DENIED',
+        success: false,
+        ip: req.ip,
+        meta: {
+          reason: 'User is not the intended recipient',
+          shareToken: req.params.token,
+          intendedRecipient: share.sharedWith,
+        },
+      });
+      return res.status(403).json({ message: 'Access Denied: You are not the intended recipient of this file.' });
     }
 
     if (share.expiresAt && new Date() > new Date(share.expiresAt)) {
@@ -153,6 +183,20 @@ router.get('/my-shares', authenticateUser, async (req, res) => {
   }
 });
 
+// GET /api/share/received-shares - Shares where current user is recipient
+router.get('/received-shares', authenticateUser, async (req, res) => {
+  try {
+    const receivedShares = await Share.find({ sharedWith: req.user.email })
+      .populate('fileId', 'originalName uploadedBy')
+      .sort({ _id: -1 });
+
+    res.status(200).json(receivedShares);
+  } catch (err) {
+    console.error('Error fetching received shares:', err);
+    res.status(500).json({ message: 'Failed to fetch received shares' });
+  }
+});
+
 // DELETE /api/share/revoke/:shareId
 router.delete('/revoke/:shareId', authenticateUser, async (req, res) => {
   try {
@@ -185,7 +229,7 @@ router.delete('/revoke/:shareId', authenticateUser, async (req, res) => {
 
   } catch (err) {
     console.error('Error revoking access:', err);
-     await AuditLog.create({
+    await AuditLog.create({
       user: req.user.userId,
       userEmail: req.user.email,
       action: 'REVOKE_ACCESS_FAILED',

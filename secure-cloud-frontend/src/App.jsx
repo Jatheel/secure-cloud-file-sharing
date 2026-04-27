@@ -5,23 +5,72 @@ import 'react-datepicker/dist/react-datepicker.css';
 import CryptoJS from 'crypto-js';
 import axios from 'axios';
 
-// In App.jsx, replace the entire DownloadPageComponent with this corrected version
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
+
+const decodeJwtPayload = (jwtToken) => {
+  try {
+    const tokenParts = jwtToken.split('.');
+    if (tokenParts.length !== 3) return null;
+
+    const payloadBase64 = tokenParts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const paddedPayload = payloadBase64.padEnd(Math.ceil(payloadBase64.length / 4) * 4, '=');
+    return JSON.parse(atob(paddedPayload));
+  } catch {
+    return null;
+  }
+};
+
+const isTokenExpired = (jwtToken) => {
+  if (!jwtToken) return true;
+
+  const payload = decodeJwtPayload(jwtToken);
+  if (!payload) return true;
+  if (!payload.exp) return false;
+
+  return payload.exp * 1000 <= Date.now();
+};
 
 const DownloadPageComponent = ({ token, setToken, setUserEmail, setUserRoles }) => {
   const [error, setError] = useState('');
   const [isLoggedIn, setIsLoggedIn] = useState(!!localStorage.getItem('token'));
   const [filename, setFilename] = useState('');
 
+  const clearDownloadSession = (message = 'Your session expired. Please log in again.') => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('email');
+    localStorage.removeItem('roles');
+    setToken('');
+    setUserEmail('');
+    setUserRoles([]);
+    setIsLoggedIn(false);
+    setError(message);
+  };
+
+  const getValidTokenOrReset = () => {
+    const authToken = localStorage.getItem('token');
+    if (!authToken || isTokenExpired(authToken)) {
+      clearDownloadSession();
+      return null;
+    }
+    return authToken;
+  };
+
   useEffect(() => {
     const fetchShareDetails = async () => {
       if (isLoggedIn) {
         try {
-          const authToken = localStorage.getItem('token');
+          const authToken = getValidTokenOrReset();
+          if (!authToken) return;
+
           const response = await axios.get(`http://localhost:5001/api/share/details/${token}`, {
             headers: { Authorization: `Bearer ${authToken}` },
           });
           setFilename(response.data.originalName);
         } catch (err) {
+          if (err.response?.status === 401) {
+            clearDownloadSession(err.response?.data?.message || 'Your session expired. Please log in again.');
+            return;
+          }
           setError('Could not retrieve file details. You may not be the correct recipient.');
         }
       }
@@ -35,7 +84,9 @@ const DownloadPageComponent = ({ token, setToken, setUserEmail, setUserRoles }) 
 
   const handleDownload = async () => {
     try {
-      const authToken = localStorage.getItem('token');
+      const authToken = getValidTokenOrReset();
+      if (!authToken) return;
+
       const response = await axios.get(`http://localhost:5001/api/share/download/${token}`, {
         headers: { Authorization: `Bearer ${authToken}` },
         responseType: 'blob',
@@ -43,7 +94,7 @@ const DownloadPageComponent = ({ token, setToken, setUserEmail, setUserRoles }) 
 
       // ✅ CORRECTED LINE: Removed the extra "new Blob([...])" wrapper
       const url = window.URL.createObjectURL(response.data);
-      
+
       const link = document.createElement('a');
       link.href = url;
       link.setAttribute('download', filename || 'downloaded-file');
@@ -51,6 +102,10 @@ const DownloadPageComponent = ({ token, setToken, setUserEmail, setUserRoles }) 
       link.click();
       link.remove();
     } catch (err) {
+      if (err.response?.status === 401) {
+        clearDownloadSession(err.response?.data?.message || 'Your session expired. Please log in again.');
+        return;
+      }
       setError(err.response?.data?.message || 'Download failed.');
     }
   };
@@ -93,6 +148,7 @@ const DownloadPageComponent = ({ token, setToken, setUserEmail, setUserRoles }) 
 
 const App = () => {
   const [activeTab, setActiveTab] = useState('overview');
+  const [authMode, setAuthMode] = useState('login');
   const [isScrolled, setIsScrolled] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -102,27 +158,27 @@ const App = () => {
   const fileInputRef = useRef(null);
   const loginRef = useRef(null);
   const shareComponentRef = useRef(null); // Ref for the share component
-  
+
   const [sharedFile, setSharedFile] = useState(null);
   const [expiryTime, setExpiryTime] = useState(null);
   const [isSharing, setIsSharing] = useState(false);
-  
+
   const [user, setUser] = useState('');
   const [file, setFile] = useState('');
   const [until, setUntil] = useState(null);
   const [rules, setRules] = useState([]);
-  
+
   const [originalFile, setOriginalFile] = useState(null);
   const [originalHash, setOriginalHash] = useState('');
   const [verificationFile, setVerificationFile] = useState(null);
   const [verificationHash, setVerificationHash] = useState('');
   const [isMatch, setIsMatch] = useState(null);
   const [simulationOutput, setSimulationOutput] = useState('');
-  
- const [roles, setRoles] = useState([
-  { name: 'admin', upload: true, download: true, revoke: true },
-  { name: 'user', upload: true, download: true, revoke: false }
-]);
+
+  const [roles, setRoles] = useState([
+    { name: 'admin', upload: true, download: true, revoke: true },
+    { name: 'user', upload: true, download: true, revoke: false }
+  ]);
 
   const [newRole, setNewRole] = useState('');
   const [permissions, setPermissions] = useState({
@@ -161,6 +217,7 @@ const App = () => {
 
   const [myShares, setMyShares] = useState([]);
   const [loadingShares, setLoadingShares] = useState(false);
+  const [receivedShares, setReceivedShares] = useState([]);
 
   useEffect(() => {
     const savedTab = localStorage.getItem('activeTab');
@@ -171,7 +228,7 @@ const App = () => {
 
   useEffect(() => {
     if (!window.location.pathname.startsWith('/download/')) {
-        localStorage.setItem('activeTab', activeTab);
+      localStorage.setItem('activeTab', activeTab);
     }
   }, [activeTab]);
 
@@ -205,11 +262,37 @@ const App = () => {
     setIsMenuOpen(!isMenuOpen);
   };
 
+  const clearAuthSession = (message = 'Your session expired. Please log in again.') => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('email');
+    localStorage.removeItem('roles');
+    setToken('');
+    setUserEmail('');
+    setUserRoles([]);
+    setActiveTab('login');
+    alert(message);
+  };
+
+  const isSessionExpired = (err) => {
+    return err?.response?.status === 401 || err?.response?.data?.code === 'TOKEN_EXPIRED';
+  };
+
+  const isAdminRole = (roles = []) => roles.some((role) => role === 'admin' || role?.name === 'admin');
+
+  const getValidTokenOrLogout = () => {
+    const authToken = localStorage.getItem('token');
+    if (!authToken || isTokenExpired(authToken)) {
+      clearAuthSession();
+      return null;
+    }
+    return authToken;
+  };
+
   const fetchAuditLogs = async () => {
     setLoadingLogs(true);
     try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
+      const authToken = getValidTokenOrLogout();
+      if (!authToken) return;
 
       const params = new URLSearchParams();
       if (auditFilters.userEmail) params.append('userEmail', auditFilters.userEmail);
@@ -218,7 +301,7 @@ const App = () => {
       if (auditFilters.endDate) params.append('endDate', auditFilters.endDate.toISOString());
 
       const res = await axios.get(`http://localhost:5001/api/audit-log?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${authToken}` },
       });
 
       if (res.data && res.data.logs) {
@@ -226,6 +309,10 @@ const App = () => {
       }
     } catch (err) {
       console.error(err);
+      if (isSessionExpired(err)) {
+        clearAuthSession(err.response?.data?.message || 'Your session expired. Please log in again.');
+        return;
+      }
       alert('Could not fetch audit logs.');
     } finally {
       setLoadingLogs(false);
@@ -235,169 +322,255 @@ const App = () => {
   const fetchMyShares = async () => {
     setLoadingShares(true);
     try {
-        const token = localStorage.getItem('token');
-        const res = await axios.get('http://localhost:5001/api/share/my-shares', {
-            headers: { Authorization: `Bearer ${token}` }
-        });
-        setMyShares(res.data);
+      const authToken = getValidTokenOrLogout();
+      if (!authToken) return;
+
+      console.log('Fetching shares with token:', authToken.substring(0, 20) + '...');
+      console.log('API_BASE_URL:', API_BASE_URL);
+
+      // Fetch both endpoints with independent error handling
+      const [sentRes, receivedRes] = await Promise.allSettled([
+        axios.get(`${API_BASE_URL}/api/share/my-shares`, {
+          headers: { Authorization: `Bearer ${authToken}` }
+        }),
+        axios.get(`${API_BASE_URL}/api/share/received-shares`, {
+          headers: { Authorization: `Bearer ${authToken}` }
+        })
+      ]);
+
+      // Handle sent shares
+      if (sentRes.status === 'fulfilled') {
+        console.log('My shares fetched:', sentRes.value.data);
+        setMyShares(sentRes.value.data);
+      } else {
+        console.error('Failed to fetch sent shares:', sentRes.reason);
+        if (isSessionExpired({ response: sentRes.reason.response })) {
+          clearAuthSession('Your session expired. Please log in again.');
+          return;
+        }
+      }
+
+      // Handle received shares
+      if (receivedRes.status === 'fulfilled') {
+        console.log('Received shares fetched:', receivedRes.value.data);
+        setReceivedShares(receivedRes.value.data);
+      } else {
+        console.error('Failed to fetch received shares:', receivedRes.reason);
+        if (isSessionExpired({ response: receivedRes.reason.response })) {
+          clearAuthSession('Your session expired. Please log in again.');
+          return;
+        }
+      }
+
+      // Show error only if both failed
+      if (sentRes.status === 'rejected' && receivedRes.status === 'rejected') {
+        alert('Could not fetch shared files.');
+      }
     } catch (err) {
-        console.error('Failed to fetch shares:', err);
-        alert('Could not fetch your shared files.');
+      console.error('Unexpected error fetching shares:', err);
+      alert('Could not fetch shared files.');
     } finally {
-        setLoadingShares(false);
+      setLoadingShares(false);
+    }
+  };
+
+  const handleDownloadReceived = async (token) => {
+    try {
+      const authToken = getValidTokenOrLogout();
+      if (!authToken) return;
+      const res = await axios.get(`${API_BASE_URL}/api/share/download/${token}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+        responseType: 'blob'
+      });
+      const url = window.URL.createObjectURL(res.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'downloaded-file');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (err) {
+      console.error('Download failed:', err);
+      if (isSessionExpired(err)) {
+        clearAuthSession(err.response?.data?.message || 'Your session expired. Please log in again.');
+        return;
+      }
+      alert(err.response?.data?.message || 'Download failed.');
     }
   };
 
   const handleRevoke = async (shareId) => {
     try {
-        const token = localStorage.getItem('token');
-        const res = await axios.delete(`http://localhost:5001/api/share/revoke/${shareId}`, {
-            headers: { Authorization: `Bearer ${token}` }
-        });
-        alert(res.data.message);
-        fetchMyShares();
+      const authToken = getValidTokenOrLogout();
+      if (!authToken) return;
+      const res = await axios.delete(`${API_BASE_URL}/api/share/revoke/${shareId}`, {
+        headers: { Authorization: `Bearer ${authToken}` }
+      });
+      alert(res.data.message);
+      fetchMyShares();
     } catch (err) {
-        console.error('Failed to revoke share:', err);
-        alert(err.response?.data?.message || 'Could not revoke access.');
-    }
-  };
-
-
- const handleEncrypt = () => {
-  if (!selectedFile || !password) {
-    alert("Select a file and enter a password");
-    return;
-  }
-
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    const wordArray = CryptoJS.lib.WordArray.create(e.target.result);
-    const header = CryptoJS.enc.Utf8.parse("SECURECHAIN:");
-    const combined = header.concat(wordArray);
-    const encrypted = CryptoJS.AES.encrypt(combined, password).toString();
-    setEncryptedData(encrypted);
-    alert("✅ File encrypted!");
-  };
-  reader.readAsArrayBuffer(selectedFile);
-};
-
-const handleUpload = async () => {
-  if (!selectedFile) {
-    alert("Please select a file first!");
-    return;
-  }
-
-  try {
-    const formData = new FormData();
-    formData.append('file', selectedFile);
-    formData.append('email', userEmail);
-
-    const token = localStorage.getItem('token');
-    const res = await axios.post('http://localhost:5001/api/upload', formData, {
-      headers: {
-        Authorization: `Bearer ${token}`,
+      console.error('Failed to revoke share:', err);
+      if (isSessionExpired(err)) {
+        clearAuthSession(err.response?.data?.message || 'Your session expired. Please log in again.');
+        return;
       }
-    });
-
-    alert(`✅ File uploaded: ${res.data.fileInfo.originalName}`);
-    setSelectedFile(null);
-  } catch (err) {
-    console.error(err);
-    alert("❌ Upload failed");
-  }
-};
-
-const shareFileWithEmail = async () => {
-  const token = localStorage.getItem('token');
-  const fileToShare = fileInputRef.current?.files?.[0];
-
-  if (!fileToShare || !shareWithEmail || !expiryTime) {
-    alert("⚠️ Please fill all fields and select a file.");
-    return;
-  }
-
-  setIsSharing(true);
-  const formData = new FormData();
-  formData.append('file', fileToShare);
-  formData.append('email', userEmail);
-
-  try {
-    const uploadRes = await fetch('http://localhost:5001/api/upload', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-      body: formData,
-    });
-
-    const uploadData = await uploadRes.json();
-    if (!uploadRes.ok || !uploadData?.fileInfo?._id) {
-      throw new Error(uploadData?.message || 'File upload failed');
+      alert(err.response?.data?.message || 'Could not revoke access.');
     }
-    const fileId = uploadData.fileInfo._id;
+  };
 
-    const shareRes = await fetch('http://localhost:5001/api/share', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        fileId,
-        sharedWith: shareWithEmail,
-        expiresAt: expiryTime,
-      }),
-    });
 
-    const shareData = await shareRes.json();
-    if (shareRes.ok) {
-      const frontendUrl = `${window.location.origin}/download/${shareData.token}`;
-      setShareLink(frontendUrl);
-      setSharedAt(new Date());
-      alert("✅ File shared successfully!");
-    } else {
-      throw new Error(shareData?.message || 'Sharing failed');
-    }
-  } catch (err) {
-    console.error('Error sharing file:', err);
-    alert(`❌ ${err.message}`);
-  } finally {
-    setIsSharing(false);
-    if (fileInputRef.current) fileInputRef.current.value = null;
-    setSharedFile(null);
-    setShareWithEmail('');
-    setExpiryTime(null);
-  }
-};
-
-const handleDecrypt = () => {
-  if (!encryptedData || !password) {
-    alert("Missing encrypted data or password");
-    return;
-  }
-
-  try {
-    const decrypted = CryptoJS.AES.decrypt(encryptedData, password);
-    const bytes = decrypted.toString(CryptoJS.enc.Latin1);
-
-    if (!bytes.startsWith("SECURECHAIN:")) {
-      alert("❌ Decryption failed: Invalid password or corrupted file.");
+  const handleEncrypt = () => {
+    if (!selectedFile || !password) {
+      alert("Select a file and enter a password");
       return;
     }
 
-    const binaryStr = bytes.slice("SECURECHAIN:".length);
-    const byteNumbers = new Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) {
-      byteNumbers[i] = binaryStr.charCodeAt(i);
-    }
-    const byteArray = new Uint8Array(byteNumbers);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const wordArray = CryptoJS.lib.WordArray.create(e.target.result);
+      const header = CryptoJS.enc.Utf8.parse("SECURECHAIN:");
+      const combined = header.concat(wordArray);
+      const encrypted = CryptoJS.AES.encrypt(combined, password).toString();
+      setEncryptedData(encrypted);
+      alert("✅ File encrypted!");
+    };
+    reader.readAsArrayBuffer(selectedFile);
+  };
 
-    const blob = new Blob([byteArray], { type: selectedFile?.type || 'application/octet-stream' });
-    const url = URL.createObjectURL(blob);
-    setDecryptedBlobUrl(url);
-    alert("✅ Decryption successful!");
-  } catch (err) {
-    alert("❌ Decryption failed. Wrong password or corrupted data.");
-  }
-};
+  const handleUpload = async () => {
+    if (!selectedFile) {
+      alert("Please select a file first!");
+      return;
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('email', userEmail);
+
+      const authToken = getValidTokenOrLogout();
+      if (!authToken) return;
+      const res = await axios.post('http://localhost:5001/api/upload', formData, {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        }
+      });
+
+      alert(`✅ File uploaded: ${res.data.fileInfo.originalName}`);
+      setSelectedFile(null);
+    } catch (err) {
+      console.error(err);
+      if (isSessionExpired(err)) {
+        clearAuthSession(err.response?.data?.message || 'Your session expired. Please log in again.');
+        return;
+      }
+      alert(`❌ Upload failed: ${err.response?.data?.message || err.message}`);
+    }
+  };
+
+  const shareFileWithEmail = async () => {
+    const authToken = getValidTokenOrLogout();
+    const fileToShare = fileInputRef.current?.files?.[0];
+
+    if (!authToken) return;
+
+    if (!fileToShare || !shareWithEmail || !expiryTime) {
+      alert("⚠️ Please fill all fields and select a file.");
+      return;
+    }
+
+    setIsSharing(true);
+    const formData = new FormData();
+    formData.append('file', fileToShare);
+    formData.append('email', userEmail);
+
+    try {
+      const uploadRes = await axios.post(`${API_BASE_URL}/api/upload`, formData, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+
+      const uploadData = uploadRes.data;
+      if (uploadRes.status === 401 || uploadData?.code === 'TOKEN_EXPIRED') {
+        clearAuthSession(uploadData?.message || 'Your session expired. Please log in again.');
+        return;
+      }
+
+      if (!uploadData?.fileInfo?._id) {
+        throw new Error(uploadData?.message || 'File upload failed');
+      }
+      const fileId = uploadData.fileInfo._id;
+
+      const shareRes = await axios.post(`${API_BASE_URL}/api/share`, {
+        fileId,
+        sharedWith: shareWithEmail,
+        expiresAt: expiryTime,
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+
+      const shareData = shareRes.data;
+      if (shareRes.status === 401 || shareData?.code === 'TOKEN_EXPIRED') {
+        clearAuthSession(shareData?.message || 'Your session expired. Please log in again.');
+        return;
+      }
+
+      if (shareRes.status >= 200 && shareRes.status < 300) {
+        const frontendUrl = `${window.location.origin}/download/${shareData.token}`;
+        setShareLink(frontendUrl);
+        setSharedAt(new Date());
+        alert("✅ File shared successfully!");
+      } else {
+        throw new Error(shareData?.message || 'Sharing failed');
+      }
+    } catch (err) {
+      console.error('Error sharing file:', err);
+      if (isSessionExpired(err)) {
+        clearAuthSession(err.response?.data?.message || 'Your session expired. Please log in again.');
+        return;
+      }
+      alert(`❌ ${err.response?.data?.message || err.message}`);
+    } finally {
+      setIsSharing(false);
+      if (fileInputRef.current) fileInputRef.current.value = null;
+      setSharedFile(null);
+      setShareWithEmail('');
+      setExpiryTime(null);
+    }
+  };
+
+  const handleDecrypt = () => {
+    if (!encryptedData || !password) {
+      alert("Missing encrypted data or password");
+      return;
+    }
+
+    try {
+      const decrypted = CryptoJS.AES.decrypt(encryptedData, password);
+      const bytes = decrypted.toString(CryptoJS.enc.Latin1);
+
+      if (!bytes.startsWith("SECURECHAIN:")) {
+        alert("❌ Decryption failed: Invalid password or corrupted file.");
+        return;
+      }
+
+      const binaryStr = bytes.slice("SECURECHAIN:".length);
+      const byteNumbers = new Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) {
+        byteNumbers[i] = binaryStr.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+
+      const blob = new Blob([byteArray], { type: selectedFile?.type || 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      setDecryptedBlobUrl(url);
+      alert("✅ Decryption successful!");
+    } catch (err) {
+      alert("❌ Decryption failed. Wrong password or corrupted data.");
+    }
+  };
 
   const urlPath = window.location.pathname;
   const isDownloadPage = urlPath.startsWith('/download/');
@@ -406,7 +579,7 @@ const handleDecrypt = () => {
   if (isDownloadPage) {
     return (
       <div className={`min-h-screen transition-colors duration-500 bg-slate-900 text-white`}>
-        <DownloadPageComponent 
+        <DownloadPageComponent
           token={downloadToken}
           setToken={setToken}
           setUserEmail={setUserEmail}
@@ -473,17 +646,32 @@ const handleDecrypt = () => {
                 Logout
               </button>
             ) : (
-              <button
-                onClick={() => {
-                  setActiveTab('login');
-                  setTimeout(() => {
-                    loginRef.current?.scrollIntoView({ behavior: 'smooth' });
-                  }, 100);
-                }}
-                className="hidden md:block px-4 py-2 rounded-md bg-gradient-to-r from-blue-600 to-emerald-600 text-white hover:from-blue-500 hover:to-emerald-500 transition-all shadow-lg hover:shadow-blue-500/30"
-              >
-                Login
-              </button>
+              <div className="hidden md:flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setActiveTab('login');
+                    setAuthMode('login');
+                    setTimeout(() => {
+                      loginRef.current?.scrollIntoView({ behavior: 'smooth' });
+                    }, 100);
+                  }}
+                  className="px-4 py-2 rounded-md bg-gradient-to-r from-blue-600 to-emerald-600 text-white hover:from-blue-500 hover:to-emerald-500 transition-all shadow-lg hover:shadow-blue-500/30"
+                >
+                  Login
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveTab('login');
+                    setAuthMode('register');
+                    setTimeout(() => {
+                      loginRef.current?.scrollIntoView({ behavior: 'smooth' });
+                    }, 100);
+                  }}
+                  className="px-4 py-2 rounded-md border border-emerald-500 text-emerald-300 hover:bg-emerald-500/10 transition-all"
+                >
+                  Sign Up
+                </button>
+              </div>
             )}
             <button onClick={toggleMenu} className="md:hidden p-2">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -523,15 +711,28 @@ const handleDecrypt = () => {
                   Logout
                 </button>
               ) : (
-                <button
-                  onClick={() => {
-                    setActiveTab('login');
-                    setIsMenuOpen(false);
-                  }}
-                  className="block w-full text-left px-3 py-2 rounded-md text-blue-400 hover:bg-slate-800"
-                >
-                  Login
-                </button>
+                <>
+                  <button
+                    onClick={() => {
+                      setActiveTab('login');
+                      setAuthMode('login');
+                      setIsMenuOpen(false);
+                    }}
+                    className="block w-full text-left px-3 py-2 rounded-md text-blue-400 hover:bg-slate-800"
+                  >
+                    Login
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveTab('login');
+                      setAuthMode('register');
+                      setIsMenuOpen(false);
+                    }}
+                    className="block w-full text-left px-3 py-2 rounded-md text-emerald-400 hover:bg-slate-800"
+                  >
+                    Sign Up
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -728,7 +929,7 @@ const handleDecrypt = () => {
           </div>
         </section>
       )}
-      
+
       {/* Demo Section */}
       {activeTab === 'demo' && (
         <section ref={demoRef} className="py-20 px-4 relative z-10">
@@ -775,13 +976,13 @@ const handleDecrypt = () => {
               >
                 {isSharing ? 'Sharing...' : 'Share File'}
               </button>
-              
+
               {sharedFile && (
                 <div className="mt-6 p-4 bg-slate-700 rounded text-white">
                   <p><strong>File:</strong> {sharedFile.name}</p>
                   <p><strong>Shared At:</strong> {sharedAt?.toLocaleString()}</p>
                   <p><strong>Expires At:</strong> {expiryTime?.toLocaleString()}</p>
-                 {shareLink && (
+                  {shareLink && (
                     <p className="mt-2 text-emerald-400">
                       🔗 <a href={shareLink} className="underline" target="_blank" rel="noreferrer">{shareLink}</a>
                       <button
@@ -819,11 +1020,11 @@ const handleDecrypt = () => {
               <h3 className="text-2xl font-bold text-blue-400 mb-4">🔐 End-to-End Encryption</h3>
               <div className="mb-4">
                 <label className="block text-white mb-2 font-semibold">Choose File</label>
-               <input
-              type="file"
-              className="mb-4 text-white"
-              onChange={(e) => setSelectedFile(e.target.files[0])}
-            />
+                <input
+                  type="file"
+                  className="mb-4 text-white"
+                  onChange={(e) => setSelectedFile(e.target.files[0])}
+                />
               </div>
               <div className="mb-4">
                 <label className="block text-white mb-2 font-semibold">Password</label>
@@ -935,7 +1136,7 @@ const handleDecrypt = () => {
                   {[
                     { label: "Upload File", tab: "upload" },
                     { label: "Share File", tab: "demo", ref: shareComponentRef },
-                    { label: "Revoke Access", tab: "manage shares" },
+                    { label: "Manage Shares", tab: "manage shares" },
                     { label: "View Audit Log", scrollTo: "audit" },
                   ].map(({ label, tab, scrollTo, ref }, i) => (
                     <button
@@ -944,7 +1145,7 @@ const handleDecrypt = () => {
                       onClick={() => {
                         if (tab) setActiveTab(tab);
                         if (ref) {
-                            setTimeout(() => ref.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+                          setTimeout(() => ref.current?.scrollIntoView({ behavior: 'smooth' }), 100);
                         }
                         if (scrollTo && scrollTo === 'audit') {
                           fetchAuditLogs();
@@ -962,76 +1163,76 @@ const handleDecrypt = () => {
               </div>
               <div id="audit-log-section">
                 <div className="bg-slate-800 p-4 rounded-lg mb-4 border border-slate-700">
-                    <h5 className="text-lg font-semibold mb-3 text-white">Filter Logs</h5>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        {userRoles.some(r => r.name === 'admin') && (
-                            <input
-                                type="text"
-                                placeholder="Filter by User Email"
-                                className="p-2 rounded bg-slate-700 text-white"
-                                value={auditFilters.userEmail}
-                                onChange={e => setAuditFilters({...auditFilters, userEmail: e.target.value})}
-                            />
-                        )}
-                        <select
-                            className="p-2 rounded bg-slate-700 text-white"
-                            value={auditFilters.action}
-                            onChange={e => setAuditFilters({...auditFilters, action: e.target.value})}
-                        >
-                            <option value="">All Actions</option>
-                            <option value="UPLOAD">Upload</option>
-                            <option value="SHARE_FILE">Share File</option>
-                            <option value="DOWNLOAD_DIRECT">Direct Download</option>
-                            <option value="DOWNLOAD_VIA_LINK">Link Download</option>
-                            <option value="DELETE_FILE">Delete File</option>
-                            <option value="REVOKE_ACCESS">Revoke Access</option>
-                        </select>
-                        <DatePicker
-                            selected={auditFilters.startDate}
-                            onChange={date => setAuditFilters({...auditFilters, startDate: date})}
-                            placeholderText="Start Date"
-                            className="p-2 w-full rounded bg-slate-700 text-white"
-                        />
-                        <DatePicker
-                            selected={auditFilters.endDate}
-                            onChange={date => setAuditFilters({...auditFilters, endDate: date})}
-                            placeholderText="End Date"
-                            className="p-2 w-full rounded bg-slate-700 text-white"
-                        />
-                    </div>
-                    <button
-                        onClick={fetchAuditLogs}
-                        className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500"
+                  <h5 className="text-lg font-semibold mb-3 text-white">Filter Logs</h5>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {isAdminRole(userRoles) && (
+                      <input
+                        type="text"
+                        placeholder="Filter by User Email"
+                        className="p-2 rounded bg-slate-700 text-white"
+                        value={auditFilters.userEmail}
+                        onChange={e => setAuditFilters({ ...auditFilters, userEmail: e.target.value })}
+                      />
+                    )}
+                    <select
+                      className="p-2 rounded bg-slate-700 text-white"
+                      value={auditFilters.action}
+                      onChange={e => setAuditFilters({ ...auditFilters, action: e.target.value })}
                     >
-                        Apply Filters
-                    </button>
+                      <option value="">All Actions</option>
+                      <option value="UPLOAD">Upload</option>
+                      <option value="SHARE_FILE">Share File</option>
+                      <option value="DOWNLOAD_DIRECT">Direct Download</option>
+                      <option value="DOWNLOAD_VIA_LINK">Link Download</option>
+                      <option value="DELETE_FILE">Delete File</option>
+                      <option value="REVOKE_ACCESS">Revoke Access</option>
+                    </select>
+                    <DatePicker
+                      selected={auditFilters.startDate}
+                      onChange={date => setAuditFilters({ ...auditFilters, startDate: date })}
+                      placeholderText="Start Date"
+                      className="p-2 w-full rounded bg-slate-700 text-white"
+                    />
+                    <DatePicker
+                      selected={auditFilters.endDate}
+                      onChange={date => setAuditFilters({ ...auditFilters, endDate: date })}
+                      placeholderText="End Date"
+                      className="p-2 w-full rounded bg-slate-700 text-white"
+                    />
+                  </div>
+                  <button
+                    onClick={fetchAuditLogs}
+                    className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500"
+                  >
+                    Apply Filters
+                  </button>
                 </div>
                 <h4 className="font-bold mb-4 text-blue-400">🧾 Audit Log Viewer</h4>
                 <div id="audit-log" className="bg-slate-800 p-4 rounded-lg h-64 overflow-y-auto border border-slate-700">
-                    {loadingLogs ? (
-                      <p className="text-gray-400">Loading logs...</p>
-                    ) : auditLogs.length > 0 ? (
-                      auditLogs.map((log) => (
-                        <div key={log._id} className="text-sm text-gray-300 mb-2 border-b border-slate-700 pb-1">
-                          <p>
-                            <strong>Action:</strong> <span className="text-blue-400 font-semibold">{log.action}</span>
+                  {loadingLogs ? (
+                    <p className="text-gray-400">Loading logs...</p>
+                  ) : auditLogs.length > 0 ? (
+                    auditLogs.map((log) => (
+                      <div key={log._id} className="text-sm text-gray-300 mb-2 border-b border-slate-700 pb-1">
+                        <p>
+                          <strong>Action:</strong> <span className="text-blue-400 font-semibold">{log.action}</span>
+                        </p>
+                        <p>
+                          <strong>User:</strong> {log.userEmail || 'System'}
+                        </p>
+                        <p>
+                          <strong>Time:</strong> {new Date(log.timestamp).toLocaleString()}
+                        </p>
+                        {log.meta && (
+                          <p className="text-xs text-slate-400 truncate">
+                            <strong>Meta:</strong> {JSON.stringify(log.meta)}
                           </p>
-                          <p>
-                            <strong>User:</strong> {log.userEmail || 'System'}
-                          </p>
-                          <p>
-                            <strong>Time:</strong> {new Date(log.timestamp).toLocaleString()}
-                          </p>
-                          {log.meta && (
-                            <p className="text-xs text-slate-400 truncate">
-                              <strong>Meta:</strong> {JSON.stringify(log.meta)}
-                            </p>
-                          )}
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-gray-400">No audit logs found. Perform an action to see logs here.</p>
-                    )}
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-gray-400">No audit logs found. Perform an action to see logs here.</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -1049,6 +1250,8 @@ const handleDecrypt = () => {
                 setToken={setToken}
                 setUserEmail={setUserEmail}
                 setUserRoles={setUserRoles}
+                mode={authMode}
+                onModeChange={setAuthMode}
               />
             </div>
           </div>
@@ -1134,25 +1337,25 @@ const handleDecrypt = () => {
               <h3 className="text-2xl font-bold text-blue-400 mb-4">🎮 Live Role Simulation</h3>
               <div className="flex space-x-2 mb-4">
                 <button
-                className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded"
-                onClick={() => {
-                  const output = roles.map(r =>
-                    `👤 ${r.name}: ${r.upload ? '⬆️ Upload ' : ''}${r.download ? '⬇️ Download ' : ''}${r.revoke ? '🚫 Revoke ' : ''}`
-                  ).join('\n');
-                  setSimulationOutput(output);
-                }}
+                  className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded"
+                  onClick={() => {
+                    const output = roles.map(r =>
+                      `👤 ${r.name}: ${r.upload ? '⬆️ Upload ' : ''}${r.download ? '⬇️ Download ' : ''}${r.revoke ? '🚫 Revoke ' : ''}`
+                    ).join('\n');
+                    setSimulationOutput(output);
+                  }}
                 >
                   ▶️ Start Simulation
                 </button>
                 <button
                   className="px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded"
                   onClick={() => {
-                setRoles([
-                  { name: 'admin', upload: true, download: true, revoke: true },
-                  { name: 'user', upload: true, download: true, revoke: false }
-                ]);
-                alert("🔄 Roles have been reset to default.");
-              }}
+                    setRoles([
+                      { name: 'admin', upload: true, download: true, revoke: true },
+                      { name: 'user', upload: true, download: true, revoke: false }
+                    ]);
+                    alert("🔄 Roles have been reset to default.");
+                  }}
                 >
                   🔄 Reset
                 </button>
@@ -1170,7 +1373,7 @@ const handleDecrypt = () => {
                   <ul className="list-disc ml-5 space-y-1">
                     {roles.map((role, i) => (
                       <li key={i}>
-                        <strong>{role.name}</strong>: 
+                        <strong>{role.name}</strong>:
                         {role.upload ? '⬆️ Upload ' : ''}
                         {role.download ? '⬇️ Download ' : ''}
                         {role.revoke ? '🚫 Revoke ' : ''}
@@ -1187,58 +1390,103 @@ const handleDecrypt = () => {
         </section>
       )}
 
-      {/* Manage Shares Section */}
+      {/* Manage Shares Section - Combined Sent & Received */}
       {activeTab === 'manage shares' && (
-          <section className="py-20 px-4 relative z-10">
-              <div className="container mx-auto max-w-6xl">
-                  <h2 className="text-3xl md:text-4xl font-bold mb-6 bg-gradient-to-r from-blue-400 to-emerald-400 text-transparent bg-clip-text">
-                      Manage Your Shared Files
-                  </h2>
-                  <button
-                      onClick={fetchMyShares}
-                      className="mb-6 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500"
-                  >
-                      {loadingShares ? 'Loading...' : '🔄 Refresh Shared Files'}
-                  </button>
-                  <div className="bg-slate-800 p-6 rounded-xl shadow-xl border border-slate-700">
-                      {loadingShares ? (
-                          <p>Loading...</p>
-                      ) : myShares.length > 0 ? (
-                          <table className="w-full text-white text-left">
-                              <thead>
-                                  <tr className="border-b border-slate-600">
-                                      <th className="p-2">File Name</th>
-                                      <th className="p-2">Shared With</th>
-                                      <th className="p-2">Expires At</th>
-                                      <th className="p-2">Action</th>
-                                  </tr>
-                              </thead>
-                              <tbody>
-                                  {myShares.map(share => (
-                                      <tr key={share._id} className="border-b border-slate-700">
-                                          <td className="p-2">{share.fileId?.originalName || 'N/A'}</td>
-                                          <td className="p-2">{share.sharedWith}</td>
-                                          <td className="p-2">{share.expiresAt ? new Date(share.expiresAt).toLocaleString() : 'Never'}</td>
-                                          <td className="p-2">
-                                              <button
-                                                  onClick={() => handleRevoke(share._id)}
-                                                  className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-500"
-                                              >
-                                                  Revoke
-                                              </button>
-                                          </td>
-                                      </tr>
-                                  ))}
-                              </tbody>
-                          </table>
-                      ) : (
-                          <p>You haven't shared any files yet.</p>
-                      )}
-                  </div>
+        <section className="py-20 px-4 relative z-10">
+          <div className="container mx-auto max-w-6xl">
+            <h2 className="text-3xl md:text-4xl font-bold mb-6 bg-gradient-to-r from-blue-400 to-emerald-400 text-transparent bg-clip-text">
+              Manage Shared Files
+            </h2>
+            <button
+              onClick={fetchMyShares}
+              className="mb-6 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500"
+            >
+              {loadingShares ? 'Loading...' : '🔄 Refresh All Shares'}
+            </button>
+
+            {/* Sent Shares */}
+            <div className="mb-10">
+              <h3 className="text-2xl font-bold text-emerald-400 mb-4">📤 Files You Shared</h3>
+              <div className="bg-slate-800 p-6 rounded-xl shadow-xl border border-slate-700">
+                {loadingShares ? (
+                  <p>Loading...</p>
+                ) : myShares.length > 0 ? (
+                  <table className="w-full text-white text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-600">
+                        <th className="p-2">File Name</th>
+                        <th className="p-2">Shared With</th>
+                        <th className="p-2">Expires At</th>
+                        <th className="p-2">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {myShares.map(share => (
+                        <tr key={share._id} className="border-b border-slate-700">
+                          <td className="p-2">{share.fileId?.originalName || 'N/A'}</td>
+                          <td className="p-2">{share.sharedWith}</td>
+                          <td className="p-2">{share.expiresAt ? new Date(share.expiresAt).toLocaleString() : 'Never'}</td>
+                          <td className="p-2">
+                            <button
+                              onClick={() => handleRevoke(share._id)}
+                              className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-500 text-xs"
+                            >
+                              Revoke
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p className="text-slate-400">You haven't shared any files yet.</p>
+                )}
               </div>
-          </section>
+            </div>
+
+            {/* Received Shares */}
+            <div>
+              <h3 className="text-2xl font-bold text-blue-400 mb-4">📥 Files Shared With You</h3>
+              <div className="bg-slate-800 p-6 rounded-xl shadow-xl border border-slate-700">
+                {loadingShares ? (
+                  <p>Loading...</p>
+                ) : receivedShares.length > 0 ? (
+                  <table className="w-full text-white text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-600">
+                        <th className="p-2">File Name</th>
+                        <th className="p-2">Shared By</th>
+                        <th className="p-2">Expires At</th>
+                        <th className="p-2">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {receivedShares.map(share => (
+                        <tr key={share._id} className="border-b border-slate-700">
+                          <td className="p-2">{share.fileId?.originalName || 'N/A'}</td>
+                          <td className="p-2">{share.sharedBy}</td>
+                          <td className="p-2">{share.expiresAt ? new Date(share.expiresAt).toLocaleString() : 'Never'}</td>
+                          <td className="p-2">
+                            <button
+                              onClick={() => handleDownloadReceived(share.token)}
+                              className="px-3 py-1 bg-emerald-600 text-white rounded hover:bg-emerald-500 text-xs"
+                            >
+                              Download
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p className="text-slate-400">No files have been shared with you yet.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
       )}
-      
+
       {/* Upload Section */}
       {activeTab === 'upload' && (
         <section className="py-20 px-4 relative z-10">
@@ -1279,11 +1527,11 @@ const handleDecrypt = () => {
                 {['twitter', 'linkedin', 'github'].map((social) => (
                   <a key={social} href="#" className="p-2 rounded-full bg-slate-800 hover:bg-blue-900/50 transition-colors">
                     <svg className="w-5 h-5 text-blue-400" viewBox="0 0 24 24" fill="currentColor">
-                      <path d={social === 'twitter' 
+                      <path d={social === 'twitter'
                         ? "M23 3a10.9 10.9 0 01-3.14 1.53A4.48 4.48 0 0012 8v1A10.66 10.66 0 013 4s-4 9 5 13a11.64 11.64 0 01-7 2c9 5 20 0 20-11.5a4.5 4.5 0 00-.08-.83A7.72 7.72 0 0023 3z"
-                        : social === 'linkedin' 
-                        ? "M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6z M2 9h4v12H2z M3 3h2v4H3z" 
-                        : "M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.82a9.583 9.583 0 012.51.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.203 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.31.678.921.678 1.856 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"}
+                        : social === 'linkedin'
+                          ? "M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6z M2 9h4v12H2z M3 3h2v4H3z"
+                          : "M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.82a9.583 9.583 0 012.51.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.203 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.31.678.921.678 1.856 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"}
                       />
                     </svg>
                   </a>

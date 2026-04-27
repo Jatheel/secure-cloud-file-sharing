@@ -1,29 +1,39 @@
 // middleware/roleMiddleware.js
+const Role = require('../models/Role');
 
 module.exports = (permission) => {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     try {
       const roles = req.user.roles || [];
 
-      const hasPermission = roles.some(role => {
-        // Object-based roles (e.g., { name: "editor", upload: true })
+      for (const role of roles) {
         if (typeof role === 'object' && role !== null) {
-          return role[permission] === true;
+          if (role.name === 'admin') {
+            return next();
+          }
+
+          if (role[permission] === true) {
+            return next();
+          }
         }
 
-        // String-based fallback role
         if (typeof role === 'string') {
-          return role === 'admin'; // Admin bypasses all checks
+          if (role === 'admin') {
+            return next();
+          }
+
+          if (role === 'user' && (permission === 'upload' || permission === 'download')) {
+            return next();
+          }
+
+          const matchedRole = await Role.findOne({ name: role.toLowerCase() }).lean();
+          if (matchedRole && matchedRole[permission] === true) {
+            return next();
+          }
         }
-
-        return false;
-      });
-
-      if (!hasPermission) {
-        return res.status(403).json({ message: `❌ Access denied: Missing ${permission} permission` });
       }
 
-      next();
+      return res.status(403).json({ message: `❌ Access denied: Missing ${permission} permission` });
     } catch (err) {
       console.error("❌ RBAC middleware error:", err.message);
       return res.status(500).json({ message: 'Internal Server Error' });

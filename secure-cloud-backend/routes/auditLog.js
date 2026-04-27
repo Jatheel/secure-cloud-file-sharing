@@ -5,6 +5,8 @@ const router = express.Router();
 const AuditLog = require('../models/AuditLog');
 const { authenticateUser } = require('../middleware/authMiddleware');
 
+const isAdminRole = (roles = []) => roles.some((role) => role === 'admin' || role?.name === 'admin');
+
 // GET /api/audit-log - Fetches audit logs with pagination and filtering
 router.get('/', authenticateUser, async (req, res) => {
   try {
@@ -14,7 +16,7 @@ router.get('/', authenticateUser, async (req, res) => {
 
     const query = {};
 
-    if (!req.user.roles.some(role => role.name === 'admin')) {
+    if (!isAdminRole(req.user.roles)) {
       query.userEmail = req.user.email;
     } else if (req.query.userEmail) {
       query.userEmail = { $regex: req.query.userEmail, $options: 'i' };

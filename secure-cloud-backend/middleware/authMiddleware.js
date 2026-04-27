@@ -15,8 +15,19 @@ const authenticateUser = (req, res, next) => {
     req.user = decoded;
     next();
   } catch (err) {
-    console.error('❌ JWT verification failed:', err);
-    res.status(401).json({ message: 'Token is not valid' });
+    if (err.name === 'TokenExpiredError') {
+      console.warn('⚠️ JWT expired at:', err.expiredAt);
+      return res.status(401).json({
+        message: 'Session expired. Please log in again.',
+        code: 'TOKEN_EXPIRED'
+      });
+    }
+
+    console.error('❌ JWT verification failed:', err.message);
+    res.status(401).json({
+      message: 'Token is not valid',
+      code: 'TOKEN_INVALID'
+    });
   }
 };
 

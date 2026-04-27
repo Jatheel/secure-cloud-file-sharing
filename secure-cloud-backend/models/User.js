@@ -13,7 +13,16 @@ const userSchema = new mongoose.Schema({
   roles: {
     type: [String],
     default: ['user'],
-  }
+  },
+  approvalStatus: {
+    type: String,
+    enum: ['pending', 'approved', 'rejected'],
+    default: 'approved',
+  },
+  requestedRole: {
+    type: String,
+    default: 'user',
+  },
 });
 
 module.exports = mongoose.model('User', userSchema);
