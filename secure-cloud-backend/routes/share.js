@@ -7,6 +7,8 @@ const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs');
 const AuditLog = require('../models/AuditLog');
+const blockchain = require('../utils/blockchain');
+const { decryptFileToBuffer } = require('../utils/encryption');
 const { sendShareEmail } = require('../utils/email');
 
 // ⬆️ Share File (generate shareable token)
@@ -53,10 +55,24 @@ router.post('/', authenticateUser, async (req, res) => {
       sharedWith: normalizedRecipient,
       sharedBy,
       token,
-      expiresAt
+      expiresAt: expiresAt || null,
+      downloadCount: 0
     });
     await share.save();
 
+    // Log on Blockchain
+    const block = blockchain.addBlock({
+      event: 'FILE_SHARE_CREATED',
+      shareId: share._id,
+      fileId: file._id,
+      originalName: file.originalName,
+      sharedBy,
+      sharedWith: normalizedRecipient,
+      expiresAt: share.expiresAt,
+      timestamp: new Date().toISOString()
+    });
+
+    // MongoDB Audit Log
     try {
       await AuditLog.create({
         user: sharerUserId,
@@ -69,6 +85,8 @@ router.post('/', authenticateUser, async (req, res) => {
           sharedWith: normalizedRecipient,
           shareToken: token,
           expiresAt: expiresAt,
+          blockIndex: block.index,
+          blockHash: block.hash
         },
       });
     } catch (auditErr) {
@@ -90,6 +108,7 @@ router.post('/', authenticateUser, async (req, res) => {
         ? '✅ File shared successfully and notification sent.'
         : '✅ File shared successfully. Email notification could not be sent.',
       token: token,
+      shareId: share._id,
       emailSent,
     });
   } catch (err) {
@@ -122,7 +141,7 @@ router.get('/download/:token', authenticateUser, async (req, res) => {
     share = await Share.findOne({ token: req.params.token }).populate('fileId');
 
     if (!share) {
-      return res.status(404).json({ message: 'Invalid token' });
+      return res.status(404).json({ message: 'Invalid or revoked token' });
     }
 
     if (share.sharedWith !== req.user.email) {
@@ -142,7 +161,7 @@ router.get('/download/:token', authenticateUser, async (req, res) => {
     }
 
     if (share.expiresAt && new Date() > new Date(share.expiresAt)) {
-      return res.status(403).json({ message: '⏰ Link expired' });
+      return res.status(403).json({ message: '⏰ Link has expired' });
     }
 
     const filePath = path.resolve(share.fileId.path);
@@ -150,6 +169,23 @@ router.get('/download/:token', authenticateUser, async (req, res) => {
       return res.status(404).json({ message: 'File missing on server' });
     }
 
+    // Increment download analytics count
+    share.downloadCount = (share.downloadCount || 0) + 1;
+    await share.save();
+
+    // Log to blockchain
+    blockchain.addBlock({
+      event: 'DOWNLOAD_VIA_SHARE',
+      shareId: share._id,
+      fileId: share.fileId._id,
+      originalName: share.fileId.originalName,
+      downloadedBy: req.user.email,
+      sharedBy: share.sharedBy,
+      downloadCount: share.downloadCount,
+      timestamp: new Date().toISOString()
+    });
+
+    // Log in MongoDB Audit Log
     await AuditLog.create({
       user: req.user.userId,
       userEmail: req.user.email,
@@ -160,13 +196,22 @@ router.get('/download/:token', authenticateUser, async (req, res) => {
         originalName: share.fileId.originalName,
         sharedBy: share.sharedBy,
         shareToken: req.params.token,
+        downloadCount: share.downloadCount
       },
     });
 
+    // Decrypt if encrypted at rest
+    if (share.fileId.isEncrypted) {
+      const decrypted = decryptFileToBuffer(filePath);
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(share.fileId.originalName)}"`);
+      res.setHeader('Content-Type', 'application/octet-stream');
+      return res.send(decrypted);
+    }
+
     res.download(filePath, share.fileId.originalName);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: '❌ Failed to download file' });
+    console.error('Download route error:', err);
+    res.status(500).json({ message: '❌ Failed to download file', error: err.message });
   }
 });
 
@@ -174,7 +219,8 @@ router.get('/download/:token', authenticateUser, async (req, res) => {
 router.get('/my-shares', authenticateUser, async (req, res) => {
   try {
     const myShares = await Share.find({ sharedBy: req.user.email })
-      .populate('fileId', 'originalName');
+      .populate('fileId', 'originalName size uploadedBy')
+      .sort({ _id: -1 });
 
     res.status(200).json(myShares);
   } catch (err) {
@@ -187,7 +233,7 @@ router.get('/my-shares', authenticateUser, async (req, res) => {
 router.get('/received-shares', authenticateUser, async (req, res) => {
   try {
     const receivedShares = await Share.find({ sharedWith: req.user.email })
-      .populate('fileId', 'originalName uploadedBy')
+      .populate('fileId', 'originalName size uploadedBy')
       .sort({ _id: -1 });
 
     res.status(200).json(receivedShares);
@@ -207,11 +253,22 @@ router.delete('/revoke/:shareId', authenticateUser, async (req, res) => {
       return res.status(404).json({ message: 'Share link not found.' });
     }
 
-    if (share.sharedBy !== req.user.email) {
+    const isAdmin = req.user.roles && req.user.roles.includes('admin');
+    if (share.sharedBy !== req.user.email && !isAdmin) {
       return res.status(403).json({ message: 'Forbidden: You do not have permission to revoke this share.' });
     }
 
     await Share.findByIdAndDelete(shareId);
+
+    // Blockchain entry
+    blockchain.addBlock({
+      event: 'REVOKE_SHARE_ACCESS',
+      shareId: share._id,
+      fileId: share.fileId,
+      sharedWith: share.sharedWith,
+      revokedBy: req.user.email,
+      timestamp: new Date().toISOString()
+    });
 
     await AuditLog.create({
       user: req.user.userId,
@@ -226,7 +283,6 @@ router.delete('/revoke/:shareId', authenticateUser, async (req, res) => {
     });
 
     res.status(200).json({ message: '✅ Access successfully revoked.' });
-
   } catch (err) {
     console.error('Error revoking access:', err);
     await AuditLog.create({
@@ -244,21 +300,25 @@ router.delete('/revoke/:shareId', authenticateUser, async (req, res) => {
   }
 });
 
-// ✅ ADD THIS NEW ROUTE
 // GET /api/share/details/:token - Fetches share details securely
 router.get('/details/:token', authenticateUser, async (req, res) => {
   try {
-    const share = await Share.findOne({ token: req.params.token }).populate('fileId', 'originalName');
+    const share = await Share.findOne({ token: req.params.token }).populate('fileId', 'originalName size');
     if (!share) {
-      return res.status(404).json({ message: 'Share link not found.' });
+      return res.status(404).json({ message: 'Share link not found or invalid.' });
     }
-    // Security check: only the recipient can get the details
-    if (share.sharedWith !== req.user.email) {
-      return res.status(403).json({ message: 'Access Denied.' });
+    // Security check: only the recipient or sharer can get the details
+    if (share.sharedWith !== req.user.email && share.sharedBy !== req.user.email) {
+      return res.status(403).json({ message: 'Access Denied: You are not the authorized recipient.' });
     }
-    res.json({ originalName: share.fileId.originalName });
+    res.json({
+      originalName: share.fileId?.originalName || 'Unknown file',
+      sharedBy: share.sharedBy,
+      expiresAt: share.expiresAt,
+      downloadCount: share.downloadCount || 0
+    });
   } catch (err) {
-    res.status(500).json({ message: 'Server error.' });
+    res.status(500).json({ message: 'Server error while fetching share details.' });
   }
 });
 

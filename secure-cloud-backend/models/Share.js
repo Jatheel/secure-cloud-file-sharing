@@ -22,6 +22,10 @@ const shareSchema = new mongoose.Schema({
   expiresAt: {
     type: Date,
     default: null
+  },
+  downloadCount: {
+    type: Number,
+    default: 0
   }
 });
 

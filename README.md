@@ -3,45 +3,95 @@
 A modern, full-stack secure file-sharing platform that combines centralized performance with blockchain-level transparency and immutability. This proof-of-concept demonstrates how to build a trusted file-sharing system with comprehensive audit logging, JWT authentication, and role-based access control.
 
 **Live Demo**: http://localhost:5173  
-**GitHub**: https://github.com/Jatheel/secure-cloud-file-sharing
+**GitHub**: https://github.com/Jatheel/secure-cloud-file-sharing  
+**Detailed Guide**: [Complete Project & Setup Guide (PROJECT_GUIDE.md)](./PROJECT_GUIDE.md)
+
+---
+
+## 🏛️ High-Level System Architecture
+
+The platform operates on a defense-in-depth zero-trust model combining client-side cryptographic hashing, server-side AES-256 encryption at rest, dual-layer immutable audit logging (MongoDB Atlas + persistent SHA-256 Blockchain), and tokenized recipient authorization:
+
+```mermaid
+flowchart TD
+    subgraph ClientLayer["🖥️ Frontend Client (React 19 + Vite + Tailwind CSS)"]
+        UI["Web Interface (Vault, Admin, Shares, Verifier, Timeline)"]
+        ClientCrypto["CryptoJS (Client-Side SHA-256 File Integrity)"]
+        AxiosAPI["Axios Client (Bearer Token Interceptor)"]
+    end
+
+    subgraph SecurityLayer["🛡️ Security & API Gateway (Express.js)"]
+        Helmet["Helmet HTTP Security Headers"]
+        Cors["CORS Policy Enforcement"]
+        RateLimit["Rate Limiter (Brute-Force Guard)"]
+        AuthMiddleware["JWT Authentication & RBAC Middleware"]
+    end
+
+    subgraph CoreServices["⚙️ Backend Core Services"]
+        UploadHandler["File Upload & Stream Controller"]
+        EncEngine["AES-256-CBC Encryption Engine (Randomized IV)"]
+        ShareService["Share Token & Expiration Manager"]
+        AdminService["Admin Role & System Metrics Service"]
+    end
+
+    subgraph PersistenceLayer["💾 Cryptographic Storage & Persistence Layer"]
+        DiskVault[("🔒 Encrypted Disk Vault (AES-256 Ciphertext)")]
+        MongoAtlas[("🍃 MongoDB Atlas (Users, File Metadata, Shares, Audit Logs)")]
+        BlockchainLedger[("⛓️ SHA-256 Blockchain Ledger (data/blockchain_data.json)")]
+    end
+
+    UI --> AxiosAPI
+    ClientCrypto -.-> UI
+    AxiosAPI -->|REST API Requests| RateLimit
+    RateLimit --> Helmet --> Cors --> AuthMiddleware
+    AuthMiddleware --> UploadHandler & ShareService & AdminService
+
+    UploadHandler --> EncEngine
+    EncEngine -->|Write Ciphertext| DiskVault
+    UploadHandler -->|Store File Metadata| MongoAtlas
+    UploadHandler -->|Mine Block with SHA-256 Hash| BlockchainLedger
+
+    ShareService -->|Store Share Grants & Revocations| MongoAtlas
+    ShareService -->|Log Share Operations| BlockchainLedger
+
+    AdminService -->|Approval Workflow & System Metrics| MongoAtlas
+```
+
+
+### 🔐 Architectural Pillars
+1. **Zero-Knowledge Privacy at Rest**: Files are encrypted with AES-256-CBC using randomized 128-bit Initialization Vectors (IV) before commit to disk. Plaintext is never stored on disk.
+2. **Dual-Audit Persistence**:
+   - **MongoDB Atlas**: Fast operational querying, compound indexing on email/timestamp, and multi-field filtering.
+   - **SHA-256 Blockchain Ledger**: Cryptographically linked block sequence where each block stores the previous block's hash. Persisted to disk in `data/blockchain_data.json` across server restarts.
+3. **Strict Recipient-Only Grants**: File shares generate UUID tokens bound to the designated recipient's authenticated email. Access is strictly rejected if an unauthorized user attempts to download.
+4. **Client-Side Non-Repudiation**: Browser-based CryptoJS SHA-256 verification allows recipients to confirm that decrypted files match the uploader's original byte-for-byte.
 
 ---
 
 ## **✨ Features Status**
 
-### **✅ Working Features**
+### **✅ Completed & Working Features**
 
-- ✅ **User Authentication**: JWT-based login/registration with email validation
+- ✅ **User Authentication**: JWT-based login/registration with email validation and brute-force rate limiting
 - ✅ **Self-Service Registration**: Users can sign up; admin role requires approval workflow
-- ✅ **Admin Approval System**: Admins approve pending user registrations
-- ✅ **Role-Based Access Control (RBAC)**: User and admin roles with differentiated permissions
-- ✅ **File Upload**: Multi-file upload with type validation (PDF, DOCX, JPG, PNG)
-- ✅ **File Sharing**: Share files with recipients via unique tokens with expiry control
-- ✅ **Recipient-Only Downloads**: Only authenticated recipients can download shared files
-- ✅ **Token-Based Access**: Unique tokens for each share, verification before download
-- ✅ **Time-Limited Shares**: Set expiration dates on file shares (optional)
-- ✅ **Revoke Access**: Instantly revoke shared file access
-- ✅ **Sent Shares View**: View all files you've shared with others
-- ✅ **Received Shares View**: View all files shared with you
-- ✅ **Blockchain Audit Log**: Immutable log of all file operations (SHA-256 linked blocks)
-- ✅ **Client-Side Integrity Verifier**: SHA-256 hash verification for downloaded files
-- ✅ **Comprehensive Audit Logging**: All actions logged (upload, share, download, revoke)
-- ✅ **Token Expiry Detection**: Proactive frontend token validation to prevent 401 errors
-- ✅ **Unified Share Management**: Single dashboard for sent and received shares
-
-### **⏳ Features In Development / Todo**
-
-- 🔄 **Email Notifications**: Share notifications via Nodemailer (infrastructure ready, credentials pending)
-- 🔄 **Admin Dashboard**: Approve/reject pending users, view system statistics
-- 🔄 **Activity Timeline**: Visual timeline of all user activities
-- 🔄 **File Encryption**: End-to-end encryption for files at rest
-- 🔄 **Blockchain Migration**: Move audit logs to a real blockchain (Ethereum/Hyperledger)
-- 🔄 **Two-Factor Authentication (2FA)**: Enhanced security for user accounts
-- 🔄 **File Versioning**: Track and restore previous versions of shared files
-- 🔄 **Bulk Operations**: Download multiple files, batch share with multiple recipients
-- 🔄 **Search & Filter**: Search files by name, date, recipient
-- 🔄 **Share Analytics**: View download counts, access patterns for shared files
-- 🔄 **API Documentation**: Swagger/OpenAPI docs for all endpoints
+- ✅ **Admin Approval System**: Admins approve or reject pending user registrations with one click
+- ✅ **Admin Dashboard**: Real-time system metrics cards, pending approval queue, and user account directory
+- ✅ **Role-Based Access Control (RBAC)**: User, auditor, and admin roles with permission simulation
+- ✅ **AES-256 File Encryption at Rest**: Files encrypted on disk with randomized IVs and decrypted on streaming
+- ✅ **Persistent Blockchain Audit Ledger**: SHA-256 linked block sequence persisted to disk across server restarts
+- ✅ **My Files Vault**: Dashboard showing user's encrypted files with size, date, direct download, and quick-share
+- ✅ **File Sharing with Access Grants**: Share files via UUID tokens with recipient-identity enforcement
+- ✅ **Share Analytics**: Track and display download counters on every shared link in real time
+- ✅ **Recipient-Only Downloads**: Only authenticated recipients can download and decrypt shared files
+- ✅ **Time-Limited Shares**: Expiration dates with automatic link revocation and countdown badges
+- ✅ **Instant Revoke Access**: Owner or admin can revoke any active share link at any time
+- ✅ **Unified Share Management**: Dedicated sub-tabs for "Sent by Me" and "Received by Me" with search filters
+- ✅ **Security Activity Timeline**: Chronological vertical feed of system security events with action badges
+- ✅ **Client-Side Integrity Verifier**: Compute and compare SHA-256 digests in-browser to verify zero tampering
+- ✅ **Comprehensive Audit Logging**: MongoDB audit logs with user, IP, action, timestamps, and metadata
+- ✅ **Token Expiry Detection**: Proactive client-side token validation preventing session errors
+- ✅ **Modular React Architecture**: Clean component architecture (<300 lines each) with unified API services
+- ✅ **Security Hardening**: Helmet security headers, rate limiting, and sanitized CORS origins
 
 ---
 

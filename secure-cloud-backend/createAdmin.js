@@ -8,14 +8,15 @@ require('dotenv').config();
 // Force public DNS resolvers so Atlas SRV lookups work even when local DNS blocks SRV records.
 dns.setServers(['8.8.8.8', '1.1.1.1']);
 
-// Example usage: node createAdmin.js recipient@example.com password123
+// Example usage: node createAdmin.js admin@example.com password123 [admin|user]
 const email = process.argv[2];
 const password = process.argv[3];
+const roleArg = process.argv[4] || 'admin';
 const normalizedEmail = email?.trim().toLowerCase();
 
 if (!email || !password) {
   console.error('❌ Error: Please provide an email and password.');
-  console.log('Usage: node createAdmin.js <email> <password>');
+  console.log('Usage: node createAdmin.js <email> <password> [admin|user]');
   process.exit(1);
 }
 
@@ -28,23 +29,25 @@ const createUser = async () => {
 
     const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
-      console.log(`ℹ️ User with email "${normalizedEmail}" already exists. Skipping creation.`);
+      console.log(`ℹ️ User "${normalizedEmail}" exists. Updating role to [${roleArg}] and approval to approved.`);
+      existingUser.roles = [roleArg];
+      existingUser.approvalStatus = 'approved';
+      await existingUser.save();
+      console.log(`✅ User "${normalizedEmail}" updated successfully!`);
       return;
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // ✅ CORRECTED: Provide the role as a simple string in an array
-    const userRoles = ['user'];
-
     await User.create({
       email: normalizedEmail,
       password: hashedPassword,
-      roles: userRoles,
+      roles: [roleArg],
+      approvalStatus: 'approved',
+      requestedRole: roleArg,
     });
 
-    console.log(`✅ User "${normalizedEmail}" created successfully!`);
-
+    console.log(`✅ User "${normalizedEmail}" created with role "${roleArg}" and status "approved"!`);
   } catch (error) {
     console.error('❌ Error creating user:', error.message);
   } finally {

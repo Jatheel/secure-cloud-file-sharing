@@ -5,9 +5,12 @@ const File = require('../models/File');
 const blockchain = require('../utils/blockchain');
 const path = require('path');
 const fs = require('fs');
-const { authenticateUser } = require('../middleware/authMiddleware'); // 🔐 Authentication
-const checkPermission = require('../middleware/roleMiddleware');     // 🔒 Role-based authorization
-const AuditLog = require('../models/AuditLog'); // ✅ Import the AuditLog model
+const { authenticateUser } = require('../middleware/authMiddleware');
+const checkPermission = require('../middleware/roleMiddleware');
+const AuditLog = require('../models/AuditLog');
+const { encryptFileInPlace, decryptFileToBuffer } = require('../utils/encryption');
+
+const isAdminRole = (roles = []) => roles.some((role) => role === 'admin' || role?.name === 'admin');
 
 // ✅ Upload File (requires 'upload' permission)
 router.post(
@@ -17,51 +20,63 @@ router.post(
   upload.single('file'),
   async (req, res) => {
     try {
-      const { email } = req.body; // Comes from the frontend form
-      const { userId } = req.user; // Comes from JWT
+      const uploaderEmail = req.user?.email || req.body?.email;
+      const userId = req.user?.userId;
 
       if (!req.file) {
         return res.status(400).json({ message: 'No file uploaded' });
       }
 
+      // Encrypt file at rest using AES-256-CBC
+      encryptFileInPlace(req.file.path);
+
       const file = new File({
         filename: req.file.filename,
         originalName: req.file.originalname,
         path: req.file.path,
-        uploadedBy: email
+        uploadedBy: uploaderEmail,
+        size: req.file.size,
+        isEncrypted: true
       });
 
       await file.save();
 
-      // Your existing blockchain logic
+      // Record transaction on immutable blockchain audit ledger
       const block = blockchain.addBlock({
+        event: 'FILE_UPLOAD',
         fileId: file._id,
         filename: file.filename,
+        originalName: file.originalName,
+        size: file.size,
         uploadedBy: file.uploadedBy,
+        isEncrypted: true,
         timestamp: file.timestamp
       });
       console.log('🔗 New block added to blockchain:', block);
 
-      // ✅ Log the successful UPLOAD action
+      // Log successful upload in MongoDB audit log
       await AuditLog.create({
         user: userId,
-        userEmail: email,
+        userEmail: uploaderEmail,
         action: 'UPLOAD',
         ip: req.ip,
         meta: {
           fileId: file._id,
           originalName: file.originalName,
-          size: req.file.size
+          size: file.size,
+          isEncrypted: true,
+          blockIndex: block.index,
+          blockHash: block.hash
         }
       });
 
       res.status(200).json({
-        message: '✅ File uploaded successfully',
+        message: '✅ File encrypted and uploaded successfully',
         fileInfo: file,
         blockchain: block
       });
     } catch (err) {
-      // ✅ Log the FAILED upload action
+      console.error('Upload route error:', err.message);
       try {
         await AuditLog.create({
           user: req.user?.userId,
@@ -82,15 +97,34 @@ router.post(
   }
 );
 
-// ✅ View Blockchain (public)
+// ✅ View Blockchain (public / auth)
 router.get('/chain', (req, res) => {
-  res.json(blockchain.chain);
+  res.json({
+    chain: blockchain.chain,
+    isValid: blockchain.isChainValid(),
+    totalBlocks: blockchain.chain.length
+  });
 });
 
-// ✅ List Uploaded Files (auth only)
+// ✅ List Uploaded Files for Current User (My Files)
+router.get('/my-files', authenticateUser, async (req, res) => {
+  try {
+    const query = { uploadedBy: req.user.email };
+    const files = await File.find(query).sort({ timestamp: -1 });
+    res.status(200).json(files);
+  } catch (err) {
+    res.status(500).json({ message: '❌ Failed to fetch my files', error: err.message });
+  }
+});
+
+// ✅ List All Uploaded Files (auth only)
 router.get('/list', authenticateUser, async (req, res) => {
   try {
-    const files = await File.find().sort({ timestamp: -1 });
+    let query = {};
+    if (!isAdminRole(req.user.roles)) {
+      query = { uploadedBy: req.user.email };
+    }
+    const files = await File.find(query).sort({ timestamp: -1 });
     res.status(200).json(files);
   } catch (err) {
     res.status(500).json({ message: '❌ Failed to fetch files', error: err.message });
@@ -110,7 +144,16 @@ router.get('/download/:id', authenticateUser, checkPermission('download'), async
       return res.status(404).json({ message: 'File missing on server' });
     }
 
-    // ✅ Log the successful DOWNLOAD_DIRECT action
+    // Record on blockchain
+    blockchain.addBlock({
+      event: 'DIRECT_DOWNLOAD',
+      fileId: file._id,
+      originalName: file.originalName,
+      downloadedBy: req.user.email,
+      timestamp: new Date().toISOString()
+    });
+
+    // Log the successful DOWNLOAD_DIRECT action
     await AuditLog.create({
       user: req.user.userId,
       userEmail: req.user.email,
@@ -122,9 +165,16 @@ router.get('/download/:id', authenticateUser, checkPermission('download'), async
       }
     });
 
+    // Decrypt if encrypted
+    if (file.isEncrypted) {
+      const decrypted = decryptFileToBuffer(filePath);
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(file.originalName)}"`);
+      res.setHeader('Content-Type', 'application/octet-stream');
+      return res.send(decrypted);
+    }
+
     res.download(filePath, file.originalName);
   } catch (err) {
-    // ✅ Log the FAILED download action
     await AuditLog.create({
       user: req.user.userId,
       userEmail: req.user.email,
@@ -140,13 +190,18 @@ router.get('/download/:id', authenticateUser, checkPermission('download'), async
   }
 });
 
-// ✅ DELETE /api/upload/delete/:id – requires 'revoke' permission
+// ✅ DELETE /api/upload/delete/:id – requires 'revoke' permission or ownership
 router.delete('/delete/:id', authenticateUser, checkPermission('revoke'), async (req, res) => {
   let file;
   try {
     file = await File.findById(req.params.id);
     if (!file) {
       return res.status(404).json({ message: 'File not found' });
+    }
+
+    // Only owner or admin can delete
+    if (file.uploadedBy !== req.user.email && !isAdminRole(req.user.roles)) {
+      return res.status(403).json({ message: 'Access denied: You can only delete your own files' });
     }
 
     const filePath = path.resolve(file.path);
@@ -156,7 +211,16 @@ router.delete('/delete/:id', authenticateUser, checkPermission('revoke'), async 
 
     await File.findByIdAndDelete(req.params.id); // remove from DB
 
-    // ✅ Log the successful DELETE action
+    // Record on blockchain
+    blockchain.addBlock({
+      event: 'FILE_DELETE',
+      fileId: file._id,
+      originalName: file.originalName,
+      deletedBy: req.user.email,
+      timestamp: new Date().toISOString()
+    });
+
+    // Log successful DELETE action
     await AuditLog.create({
       user: req.user.userId,
       userEmail: req.user.email,
@@ -171,7 +235,6 @@ router.delete('/delete/:id', authenticateUser, checkPermission('revoke'), async 
     res.status(200).json({ message: '🗑️ File successfully deleted' });
   } catch (err) {
     console.error('❌ Delete error:', err.message);
-    // ✅ Log the FAILED delete action
     try {
       await AuditLog.create({
         user: req.user.userId,
@@ -192,7 +255,7 @@ router.delete('/delete/:id', authenticateUser, checkPermission('revoke'), async 
   }
 });
 
-// Normalize upload middleware errors (e.g., unsupported file type) to JSON responses.
+// Normalize upload middleware errors to JSON responses
 router.use((err, req, res, next) => {
   if (!err) {
     return next();
