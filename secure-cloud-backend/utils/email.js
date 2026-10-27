@@ -1,7 +1,13 @@
 const nodemailer = require('nodemailer');
 
-// This function will be called after a file is shared
+// This function will be called after a file is shared.
+// Returns true if the email was sent, false otherwise (never throws).
 const sendShareEmail = async (recipientEmail, sharerEmail, fileDetails, shareLink) => {
+  if (!process.env.ETHEREAL_USER || !process.env.ETHEREAL_PASS) {
+    console.log('ℹ️ Email not configured (ETHEREAL_USER/ETHEREAL_PASS missing). Skipping share email.');
+    return false;
+  }
+
   try {
     // For development, we'll use a test account from Ethereal.
     // In a real application, you'd use a service like Gmail, SendGrid, etc.
@@ -41,9 +47,10 @@ const sendShareEmail = async (recipientEmail, sharerEmail, fileDetails, shareLin
     console.log('✅ Email sent successfully!');
     // You can preview the sent email at the URL Nodemailer logs to the console
     console.log('📧 Preview URL: %s', nodemailer.getTestMessageUrl(info));
-
+    return true;
   } catch (error) {
-    console.error('❌ Error sending email:', error);
+    console.error('❌ Error sending email:', error.message);
+    return false;
   }
 };
 

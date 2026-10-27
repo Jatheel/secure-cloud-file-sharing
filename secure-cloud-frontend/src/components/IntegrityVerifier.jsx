@@ -46,7 +46,6 @@ const IntegrityVerifier = ({ showToast }) => {
   };
 
   const isMatched = hashA && hashB && hashA === hashB;
-  const isMismatched = hashA && hashB && hashA !== hashB;
 
   return (
     <div className="space-y-6 animate-fade-in max-w-4xl mx-auto">

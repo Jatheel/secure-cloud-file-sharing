@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const upload = require('../middleware/uploadMiddleware');
 const File = require('../models/File');
+const Share = require('../models/Share');
 const blockchain = require('../utils/blockchain');
 const path = require('path');
 const fs = require('fs');
@@ -139,6 +140,23 @@ router.get('/download/:id', authenticateUser, checkPermission('download'), async
       return res.status(404).json({ message: 'File not found' });
     }
 
+    // Only owner or admin can download directly; others must use a share link
+    if (file.uploadedBy !== req.user.email && !isAdminRole(req.user.roles)) {
+      await AuditLog.create({
+        user: req.user.userId,
+        userEmail: req.user.email,
+        action: 'DOWNLOAD_ACCESS_DENIED',
+        success: false,
+        ip: req.ip,
+        meta: {
+          reason: 'User is not the file owner',
+          fileId: file._id,
+          originalName: file.originalName
+        }
+      });
+      return res.status(403).json({ message: 'Access denied: You can only download your own files directly' });
+    }
+
     const filePath = path.resolve(file.path);
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ message: 'File missing on server' });
@@ -190,8 +208,8 @@ router.get('/download/:id', authenticateUser, checkPermission('download'), async
   }
 });
 
-// ✅ DELETE /api/upload/delete/:id – requires 'revoke' permission or ownership
-router.delete('/delete/:id', authenticateUser, checkPermission('revoke'), async (req, res) => {
+// ✅ DELETE /api/upload/delete/:id – owner or admin only
+router.delete('/delete/:id', authenticateUser, async (req, res) => {
   let file;
   try {
     file = await File.findById(req.params.id);
@@ -210,6 +228,7 @@ router.delete('/delete/:id', authenticateUser, checkPermission('revoke'), async 
     }
 
     await File.findByIdAndDelete(req.params.id); // remove from DB
+    await Share.deleteMany({ fileId: file._id }); // invalidate all share links for this file
 
     // Record on blockchain
     blockchain.addBlock({

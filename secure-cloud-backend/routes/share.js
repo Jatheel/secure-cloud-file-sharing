@@ -95,18 +95,12 @@ router.post('/', authenticateUser, async (req, res) => {
 
     const frontendUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/download/${token}`;
 
-    let emailSent = true;
-    try {
-      await sendShareEmail(normalizedRecipient, sharedBy, file, frontendUrl);
-    } catch (emailErr) {
-      emailSent = false;
-      console.error('Share email failed:', emailErr.message);
-    }
+    const emailSent = await sendShareEmail(normalizedRecipient, sharedBy, file, frontendUrl);
 
     res.status(200).json({
       message: emailSent
         ? '✅ File shared successfully and notification sent.'
-        : '✅ File shared successfully. Email notification could not be sent.',
+        : '✅ File shared successfully. Copy the link and send it to the recipient.',
       token: token,
       shareId: share._id,
       emailSent,
@@ -162,6 +156,10 @@ router.get('/download/:token', authenticateUser, async (req, res) => {
 
     if (share.expiresAt && new Date() > new Date(share.expiresAt)) {
       return res.status(403).json({ message: '⏰ Link has expired' });
+    }
+
+    if (!share.fileId) {
+      return res.status(404).json({ message: 'The shared file has been deleted by its owner' });
     }
 
     const filePath = path.resolve(share.fileId.path);

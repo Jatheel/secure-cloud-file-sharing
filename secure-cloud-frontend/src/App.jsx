@@ -37,10 +37,21 @@ const App = () => {
   const [toast, setToast] = useState({ message: '', type: 'info' });
 
   // Check URL pathname for /download/:token route
-  const isDownloadRoute = window.location.pathname.startsWith('/download/');
+  const [isDownloadRoute, setIsDownloadRoute] = useState(
+    () => window.location.pathname.startsWith('/download/')
+  );
   const downloadToken = isDownloadRoute
     ? window.location.pathname.replace('/download/', '').split('/')[0]
     : '';
+
+  // Navigating from the download page returns to the main app
+  const navigateToTab = (tab) => {
+    if (isDownloadRoute) {
+      window.history.pushState({}, '', '/');
+      setIsDownloadRoute(false);
+    }
+    setActiveTab(tab);
+  };
 
   const showToast = (message, type = 'info') => {
     setToast({ message, type });
@@ -85,7 +96,7 @@ const App = () => {
 
   const handleNavigateLogin = (mode = 'login') => {
     setAuthMode(mode);
-    setActiveTab('login');
+    navigateToTab('login');
   };
 
   return (
@@ -100,7 +111,7 @@ const App = () => {
       {/* Main Navigation Bar */}
       <Navbar
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={navigateToTab}
         token={token}
         userEmail={userEmail}
         userRoles={userRoles}
